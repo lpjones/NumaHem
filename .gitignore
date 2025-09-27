@@ -1,0 +1,9 @@
+*.o
+*.so
+*.txt
+*.data
+*.data.old
+*.png
+*.bin
+scripts/
+traces/

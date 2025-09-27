@@ -1,0 +1,16 @@
+CC = gcc
+# CFLAGS = -g -Wall -O3 -fPIC
+CFLAGS = -g3 -Wall -O0 -fPIC
+LDFLAGS = -shared
+# INCLUDES = -I../../hemem-og/linux/kbuild/usr/include/
+# LIBS = -lm -lpthread
+# HEMEM_LIBS = $(LIBS) -ldl -lsyscall_intercept -L../Hoard/src -lhoard
+LIBS = -lsyscall_intercept -lnuma -lpthread
+
+default: libtmem.so
+
+libtmem.so: interpose.o tmem.o pebs.o timer.o
+	$(CC) $(LDFLAGS) -o libtmem.so interpose.o tmem.o pebs.o timer.o $(LIBS)
+
+clean:
+	$(RM) *.o *.so
