@@ -11,11 +11,11 @@ static _Atomic bool kill_internal_threads[NUM_INTERNAL_THREADS];
 static pthread_t internal_threads[NUM_INTERNAL_THREADS];
 
 struct perf_sample {
-  __u64	ip;
-  __u32 pid, tid;    /* if PERF_SAMPLE_TID */
-  __u64 addr;        /* if PERF_SAMPLE_ADDR */
-//   __u64 weight;      /* if PERF_SAMPLE_WEIGHT */
-  /* __u64 data_src;    /\* if PERF_SAMPLE_DATA_SRC *\/ */
+  __u64	ip;             /* if PERF_SAMPLE_IP*/
+//   __u32 pid, tid;       /* if PERF_SAMPLE_TID */
+  __u64 addr;           /* if PERF_SAMPLE_ADDR */
+//   __u64 weight;         /* if PERF_SAMPLE_WEIGHT */
+// __u64 data_src;         /* if PERF_SAMPLE_DATA_SRC */
 };
 
 struct pebs_rec {
@@ -26,7 +26,14 @@ struct pebs_rec {
   uint8_t  evt;
 } __attribute__((packed));
 
+struct pebs_stats {
+    uint64_t throttles, unthrottles;
+    uint64_t local_accesses, remote_accesses;
+    uint64_t internal_mem_overhead;
+    uint64_t unknown_samples;
+};
 
+struct pebs_stats pebs_stats = {0};
 
 
 void wait_for_threads() {
@@ -41,7 +48,7 @@ void pebs_cleanup() {
     
 }
 
-static inline void  kill_thread(uint8_t thread) {
+static inline void kill_thread(uint8_t thread) {
     atomic_store(&kill_internal_threads[thread], true);
 }
 
@@ -72,7 +79,7 @@ static struct perf_event_mmap_page* perf_setup(__u64 config, __u64 config1, uint
   attr.config1 = config1;
   attr.sample_period = SAMPLE_PERIOD;
 
-  attr.sample_type = PERF_SAMPLE_IP | PERF_SAMPLE_TID | PERF_SAMPLE_ADDR;
+  attr.sample_type = PERF_SAMPLE_IP | PERF_SAMPLE_ADDR; // PERF_SAMPLE_TID, PERF_SAMPLE_WEIGHT
   attr.disabled = 0;
   //attr.inherit = 1;
   attr.exclude_kernel = 1;
@@ -80,8 +87,6 @@ static struct perf_event_mmap_page* perf_setup(__u64 config, __u64 config1, uint
   attr.exclude_callchain_kernel = 1;
   attr.exclude_callchain_user = 1;
   attr.precise_ip = 1;
-
-//   printf("cpu: %d, type: %d\n", cpu, type);
 
   pfd[cpu_idx][type] = perf_event_open(&attr, -1, cpu, -1, 0);
   assert(pfd[cpu_idx][type] != -1);
@@ -91,17 +96,46 @@ static struct perf_event_mmap_page* perf_setup(__u64 config, __u64 config1, uint
   /* printf("mmap_size = %zu\n", mmap_size); */
   struct perf_event_mmap_page *p = mmap(NULL, mmap_size, PROT_READ | PROT_WRITE, MAP_SHARED, pfd[cpu_idx][type], 0);
   assert(p != MAP_FAILED);
+  pebs_stats.internal_mem_overhead += mmap_size;
   fprintf(stderr, "Set up perf on core %llu\n", cpu);
 
 
   return p;
 }
 
-void pebs_init(void)
-{
+void* pebs_stats_thread() {
+    internal_call = true;
+
+    // cpu_set_t cpuset;
+    // CPU_ZERO(&cpuset);
+    // CPU_SET(PEBS_STATS_CPU, &cpuset);
+    // int s = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+    // assert(s == 0);
+    // return NULL;
+    while (!killed(PEBS_STATS_THREAD)) {
+        sleep(1);
+        LOG_STATS("internal_mem_overhead: [%lu]\tthrottles/unthrottles: [%lu/%lu]\tunknown_samples: [%lu]\n", 
+                pebs_stats.internal_mem_overhead, pebs_stats.throttles, pebs_stats.unthrottles, pebs_stats.unknown_samples)
+    }
+    return NULL;
+}
+
+static void start_pebs_stats_thread() {
+    int s = pthread_create(&internal_threads[PEBS_STATS_THREAD], NULL, pebs_stats_thread, NULL);
+    assert(s == 0);
+}
+
+void pebs_init(void) {
     printf("in pebs_init\n");
 
-    trace_fp = fopen("../traces/trace.bin", "wb");
+#if PEBS_STATS == 1
+    printf("pebs_stats: %d\n", PEBS_STATS);
+    start_pebs_stats_thread();
+#endif
+
+    
+
+    trace_fp = fopen("trace.bin", "wb");
     if (trace_fp == NULL) {
         perror("miss ratio file fopen");
     }
@@ -126,51 +160,40 @@ struct perf_sample read_perf_sample(uint32_t cpu_idx, uint8_t event) {
     uint64_t data_size = p->data_size;
     if (data_size == 0) return rec;
 
-    // uint64_t head = atomic_load_explicit(&p->data_head, memory_order_acquire);
-    // uint64_t tail = atomic_load_explicit(&p->data_tail, memory_order_relaxed);
     uint64_t head = p->data_head;
     uint64_t tail = p->data_tail;
     if (head == tail) return rec;
-    if (tail > head) {
-        printf("head: %lu, tail: %lu, data_size: %lu\n", head, tail, data_size);
-    }
+
     assert(tail <= data_size);
-    // printf("head: %lu, tail: %lu, data_size: %lu\n", head, tail, data_size);
+
     struct perf_event_header *hdr = (struct perf_event_header *)(data + tail);
     assert(tail + hdr->size <= data_size);
     assert(hdr->size != 0);
 
-    // printf("type: ");
     switch (hdr->type) {
         case PERF_RECORD_SAMPLE:
             // printf("record sample");
             if (hdr->size - sizeof(struct perf_event_header) != sizeof(struct perf_sample)) {
-                // printf("Wrong size: hdr->size: %d, sample size: %lu\n", hdr->size, sizeof(struct perf_sample));
+                // printf("hdr->size: %lu, perf_sample: %lu\n", hdr->size - sizeof(struct perf_event_header), sizeof(struct perf_sample));
                 break;
             }
-// struct perf_sample {
-//   __u64	ip;
-//   __u32 pid, tid;    /* if PERF_SAMPLE_TID */
-//   __u64 addr;        /* if PERF_SAMPLE_ADDR */
-//   __u64 weight;      /* if PERF_SAMPLE_WEIGHT */
-//   /* __u64 data_src;    /\* if PERF_SAMPLE_DATA_SRC *\/ */
-// };
-            // printf("right size\n");
             memcpy(&rec, (char *)hdr + sizeof(struct perf_event_header), sizeof(struct perf_sample));
-            // printf("addr: 0x%llx, pid: %u, tid: %u, ip: 0x%llx\n",
-            //         rec.addr, rec.pid, rec.tid,  rec.ip);
+            // printf("addr: 0x%llx, ip: 0x%llx\n", rec.addr, rec.ip);
             break;
         case PERF_RECORD_THROTTLE:
-            // printf("throttle");
+            pebs_stats.throttles++;
+            // printf("throttle/unthrottle: %lu/%lu\n", pebs_stats.throttles, pebs_stats.unthrottles);
             break;
         case PERF_RECORD_UNTHROTTLE:
-            // printf("unthrottle");
+            pebs_stats.unthrottles++;
+            // printf("throttle/unthrottle: %lu/%lu\n", pebs_stats.throttles, pebs_stats.unthrottles);
+
             break;
         default:
-            // printf("other");
+            // printf("unknown sample\n");
+            pebs_stats.unknown_samples++;
             break;
     }
-    // printf(", size: %u\n", hdr->size);
 
     tail += hdr->size;
     p->data_tail = tail;
@@ -191,8 +214,16 @@ struct perf_sample read_perf_sample(uint32_t cpu_idx, uint8_t event) {
 }
 
 void* pebs_scan_thread() {
+    internal_call = true;
     // set cpu
+    // cpu_set_t cpuset;
+    // CPU_ZERO(&cpuset);
+    // CPU_SET(PEBS_SCAN_CPU, &cpuset);
+    // // pthread_t thread_id = pthread_self();
+    // int s = pthread_setaffinity_np(internal_threads[PEBS_THREAD], sizeof(cpu_set_t), &cpuset);
+    // assert(s == 0);
     // pebs_init();
+    printf("pebs scan started\n");
 
     uint64_t num_loops = 0;
     for (int i = 0; i < NUM_INTERNAL_THREADS; i++) {

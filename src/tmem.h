@@ -1,3 +1,6 @@
+#ifndef _TMEM_HEADER
+#define _TMEM_HEADER
+
 #include <stdio.h>
 #include <numa.h>
 
@@ -10,3 +13,5 @@ void tmem_init();
 int tmem_mmap();
 int tmem_munmap();
 void tmem_cleanup();
+
+#endif
