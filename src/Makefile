@@ -12,8 +12,8 @@ CFLAGS += -DPEBS_STATS=$(pebs_stats)
 
 default: libtmem.so
 
-libtmem.so: interpose.o tmem.o pebs.o timer.o logging.o
-	$(CC) $(LDFLAGS) -o libtmem.so interpose.o tmem.o pebs.o timer.o logging.o $(LIBS)
+libtmem.so: interpose.o tmem.o pebs.o timer.o logging.o spsc-ring.o fifo.o
+	$(CC) $(LDFLAGS) -o libtmem.so interpose.o tmem.o pebs.o timer.o logging.o spsc-ring.o fifo.o $(LIBS)
 
 clean:
 	$(RM) *.o *.so

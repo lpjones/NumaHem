@@ -14,6 +14,7 @@
 #include <numa.h>
 
 #include "tmem.h"
+#include "pebs.h"
 
 extern _Thread_local bool internal_call;
 

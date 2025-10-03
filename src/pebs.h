@@ -25,6 +25,8 @@
 #include "timer.h"
 #include "interpose.h"
 #include "logging.h"
+#include "spsc-ring.h"
+#include "fifo.h"
 
 #ifndef PEBS_SCAN_CPU
     #define PEBS_SCAN_CPU 30
@@ -39,7 +41,7 @@
 #endif
 
 #ifndef PERF_PAGES
-    #define PERF_PAGES (1 + (1 << 16))
+    #define PERF_PAGES (1 + (1 << 4))  // Uses 8GB total for 16 CPUs
 #endif
 
 #ifndef PEBS_NPROCS
@@ -50,18 +52,51 @@
     #define PEBS_STATS 1
 #endif
 
+#ifndef CAPACITY
+    #define CAPACITY (128 * 1024 * 1024)
+#endif
+
+#ifndef COOLING_THRESHOLD
+    #define COOLING_THRESHOLD 24
+#endif
+
+#ifndef HOT_THRESHOLD
+    #define HOT_THRESHOLD 8
+#endif
+
+#ifndef SAMPLE_COOLING_THRESHOLD
+    #define SAMPLE_COOLING_THRESHOLD 10000
+#endif
+
+#ifndef MAX_ACCESSES
+    #define MAX_ACCESSES 255 // has to be 2^n - 1
+#endif
+
 enum {
     PEBS_THREAD,
     PEBS_STATS_THREAD,
+    MIGRATION_THREAD,
     NUM_INTERNAL_THREADS
 };
 
 
 enum pbuftype {
   DRAMREAD = 0,
-  NVMREAD = 1,  
+  REMREAD = 1,  
   NPBUFTYPES
 };
+
+struct pebs_stats {
+    uint64_t throttles, unthrottles;
+    uint64_t local_accesses, remote_accesses;
+    uint64_t internal_mem_overhead, mem_allocated;
+    uint64_t unknown_samples;
+    uint64_t wrapped_records;
+    uint64_t wrapped_headers;
+};
+
+extern struct pebs_stats pebs_stats;
+
 
 void pebs_init();
 void start_pebs_thread();

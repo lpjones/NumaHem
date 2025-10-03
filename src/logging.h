@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <assert.h>
 
+#include "tmem.h"
+
 extern FILE* stats_fp;
 extern FILE* debug_fp;
 
