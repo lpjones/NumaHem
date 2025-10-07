@@ -41,7 +41,7 @@
 #endif
 
 #ifndef PERF_PAGES
-    #define PERF_PAGES (1 + (1 << 4))  // Uses 8GB total for 16 CPUs
+    #define PERF_PAGES (1 + (1 << 12))  // Uses 8GB total for 16 CPUs
 #endif
 
 #ifndef PEBS_NPROCS
@@ -52,24 +52,16 @@
     #define PEBS_STATS 1
 #endif
 
-#ifndef CAPACITY
-    #define CAPACITY (128 * 1024 * 1024)
-#endif
-
-#ifndef COOLING_THRESHOLD
-    #define COOLING_THRESHOLD 24
-#endif
-
 #ifndef HOT_THRESHOLD
     #define HOT_THRESHOLD 8
 #endif
 
 #ifndef SAMPLE_COOLING_THRESHOLD
-    #define SAMPLE_COOLING_THRESHOLD 10000
+    #define SAMPLE_COOLING_THRESHOLD 100000
 #endif
 
-#ifndef MAX_ACCESSES
-    #define MAX_ACCESSES 255 // has to be 2^n - 1
+#ifndef CYC_COOL_THRESHOLD
+    #define CYC_COOL_THRESHOLD 10000000
 #endif
 
 enum {
@@ -93,6 +85,9 @@ struct pebs_stats {
     uint64_t unknown_samples;
     uint64_t wrapped_records;
     uint64_t wrapped_headers;
+    uint64_t dram_accesses, rem_accesses;
+    uint64_t promotions, demotions;
+
 };
 
 extern struct pebs_stats pebs_stats;

@@ -108,6 +108,7 @@ static __attribute__((constructor)) void init(void)
     
     
     init_log_files();
+    LOG_DEBUG("CONSTRUCTOR\n");
     LOG_DEBUG("MAP_ANONYMOUS: %d, MAP_STACK: %d, PROT_EXEC: %d, MAP_SHARED: %d\n \
               MAP_FIXED: %d, MAP_FIXED_NOREPLACE: %d\n \
               PROT_READ: %d, PROT_WRITE: %d, PROT_EXEC: %d, PROT_NONE: %d\n", 
@@ -129,8 +130,9 @@ static __attribute__((constructor)) void init(void)
 //   assert(ret == 1);
 }
 
-static __attribute__((destructor)) void tmem_shutdown(void)
-{
-    tmem_cleanup();
-    // pebs_cleanup();
-}
+// static __attribute__((destructor)) void tmem_shutdown(void)
+// {   
+//     LOG_DEBUG("DESTRUCTOR\n");
+//     tmem_cleanup();
+//     // pebs_cleanup();
+// }

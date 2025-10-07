@@ -118,11 +118,32 @@ void* pebs_stats_thread() {
                 pebs_stats.internal_mem_overhead, pebs_stats.mem_allocated, pebs_stats.throttles, pebs_stats.unthrottles, pebs_stats.unknown_samples)
         LOG_STATS("\twrapped_records: [%lu]\twrapped_headers: [%lu]\n", 
                 pebs_stats.wrapped_records, pebs_stats.wrapped_headers);
+
+#ifdef DRAM_BUFFER
         LOG_STATS("\tdram_free: [%ld]\tdram_used: [%ld]\t dram_size: [%ld]\tdram_cap: [%ld]\n", dram_free, dram_used, dram_size, dram_free - DRAM_BUFFER);
-        // hacky way to update dram_free every second in case there's drift over time
+#endif
+#ifdef DRAM_SIZE
+        LOG_STATS("\tdram_used: [%ld]\t dram_size: [%ld]\n", dram_used, dram_size);
+#endif
+        double percent_dram = 100.0 * pebs_stats.dram_accesses / (pebs_stats.dram_accesses + pebs_stats.rem_accesses);
+        LOG_STATS("\tdram_accesses: [%ld]\trem_accesses: [%ld]\t percent dram: [%.2f]\n", 
+            pebs_stats.dram_accesses, pebs_stats.rem_accesses, percent_dram);
+        
+        uint64_t migrations = pebs_stats.promotions + pebs_stats.demotions;
+        LOG_STATS("\tpromotions: [%lu]\tdemotions: [%lu]\tmigrations: [%lu]\n", 
+                pebs_stats.promotions, pebs_stats.demotions, migrations);
+
+        pebs_stats.dram_accesses = 0;
+        pebs_stats.rem_accesses = 0;
+        pebs_stats.promotions = 0;
+        pebs_stats.demotions = 0;
+
+#ifdef DRAM_BUFFER
+        // hacky way to update dram_size every second in case there's drift over time
         long cur_dram_free;
-        numa_node_size(DRAM_NODE, &cur_dram_free);
-        dram_free = cur_dram_free + dram_used;
+        dram_size = numa_node_size(DRAM_NODE, &cur_dram_free);
+        dram_size -= cur_dram_free; 
+#endif
     }
     return NULL;
 }
@@ -132,38 +153,7 @@ static void start_pebs_stats_thread() {
     assert(s == 0);
 }
 
-void pebs_init(void) {
-    internal_call = true;
 
-#if PEBS_STATS == 1
-    LOG_DEBUG("pebs_stats: %d\n", PEBS_STATS);
-    start_pebs_stats_thread();
-#endif
-
-    tmem_trace_fp = fopen("tmem_trace.bin", "wb");
-    if (tmem_trace_fp == NULL) {
-        perror("tmem_trace file fopen");
-    }
-    assert(tmem_trace_fp != NULL);
-
-    trace_fp = fopen("trace.bin", "wb");
-    if (trace_fp == NULL) {
-        perror("trace file fopen");
-    }
-    assert(trace_fp != NULL);
-
-    int pebs_start_cpu = 0;
-    int num_cores = PEBS_NPROCS;
-    
-    for (int i = pebs_start_cpu; i < pebs_start_cpu + num_cores; i++) {
-        perf_page[i][DRAMREAD] = perf_setup(0x1d3, 0, i, i * 2, DRAMREAD);      // MEM_LOAD_L3_MISS_RETIRED.LOCAL_DRAM, mem_load_uops_l3_miss_retired.local_dram        
-        perf_page[i][REMREAD] = perf_setup(0x4d3, 0, i, i * 2, REMREAD);     // MEM_LOAD_RETIRED.LOCAL_PMM        
-    }
-
-    start_pebs_thread();
-
-    internal_call = false;
-}
 
 struct perf_sample read_perf_sample(uint32_t cpu_idx, uint8_t event) {
     struct perf_event_mmap_page *p = perf_page[cpu_idx][event];
@@ -242,13 +232,61 @@ struct perf_sample read_perf_sample(uint32_t cpu_idx, uint8_t event) {
     return rec;
 }
 
-
+// Could be munmapped at any time
 void make_hot_request(struct tmem_page* page) {
+    if (page == NULL) return;
+    // page could be munmapped here (but pages are never actually
+    // unmapped so just check if it's in free state once locked)
+    pthread_mutex_lock(&page->page_lock);
+    // check if unmapped
+    if (page->free) {
+        // printf("Page was free\n");
+        pthread_mutex_unlock(&page->page_lock);
+        return;
+    }
+    page->hot = true;
+    
+    // add to hot list if:
+    // page is not already in hot list and
+    // page is in remote memory
+    if (page->list != &hot_list && page->in_dram == IN_REM) {
+        // either was in remote mem or just got dequeued
+        // from cold list in migrate thread
+        enqueue_fifo(&hot_list, page);
+    }
+    // printf("page is either already in hot list or is in remote memory\n");
+    
+    pthread_mutex_unlock(&page->page_lock);
 
 }
 
 void make_cold_request(struct tmem_page* page) {
-
+    if (page == NULL) return;
+    // page could be munmapped here (but pages are never actually
+    // unmapped so just check if it's in free state once locked)
+    pthread_mutex_lock(&page->page_lock);
+    // check if unmapped
+    if (page->free) {
+        pthread_mutex_unlock(&page->page_lock);
+        return;
+    }
+    page->hot = false;
+    // move to cold list if:
+    // page is not already in cold list and
+    // page is in dram
+    if (page->list != &cold_list && page->in_dram == IN_DRAM) {
+        // remove from hot list
+        if (page->list == NULL) {   // Got dequeued from hot list in migrate thread
+            enqueue_fifo(&cold_list, page);
+        } else {
+            assert(page->list == &hot_list);
+            page_list_remove_page(page->list, page);
+            enqueue_fifo(&cold_list, page);
+        }
+        
+    }
+    
+    pthread_mutex_unlock(&page->page_lock);
 }
 
 
@@ -262,14 +300,12 @@ void* pebs_scan_thread() {
     // int s = pthread_setaffinity_np(internal_threads[PEBS_THREAD], sizeof(cpu_set_t), &cpuset);
     // assert(s == 0);
     // pebs_init();
-    printf("pebs scan started\n");
 
     uint64_t samples_since_cool = 0;
+    uint64_t last_cyc_cool = rdtscp();
 
     uint64_t num_loops = 0;
-    for (int i = 0; i < NUM_INTERNAL_THREADS; i++) {
-        atomic_store(&kill_internal_threads[i], false);
-    }
+    
     while (true) {
         num_loops++;
         // struct timespec start = get_time();
@@ -287,7 +323,7 @@ void* pebs_scan_thread() {
 
         for (int cpu_idx = pebs_start_cpu; cpu_idx < pebs_start_cpu + num_cores; cpu_idx++) {
             for(int evt = 0; evt < NPBUFTYPES; evt++) {
-                samples_since_cool++;
+                // samples_since_cool++;
                 // struct pebs_rec sample = read_perf_sample(i, j);
                 struct perf_sample sample = read_perf_sample(cpu_idx, evt);
                 if (sample.addr == 0) continue;
@@ -300,24 +336,25 @@ void* pebs_scan_thread() {
                     page = find_page(sample.addr & BASE_PAGE_MASK);
                 if (page == NULL) continue;
 
-                // long move_pages(pid, count, void *pages[count], int nodes[count], int status[count], int flags);
-                // int node;
-                // void* pages = (void *)page->va;
-                // int ret = numa_move_pages(0, 1, &pages, NULL, &node, 0);
-                // if (ret == -1) {
-                //     perror("numa_move_pages");
-                //     LOG_DEBUG("numa_move_pages failed\n");
-                // }
-                // if (node < 0) {
-                //     fprintf(stderr, "error = %d (%s)\n", node, strerror(-node));
-                //     assert(0);
-                // } else {
-                //     printf("PEBS: node %d: addr: 0x%lx\n", node, page->va);
-                // }
+                struct pebs_rec p_rec = {
+                    .va = sample.addr,
+                    .ip = sample.ip,
+                    .cyc = sample.time,
+                    .cpu = cpu_idx,
+                    .evt = evt
+                };
+                fwrite(&p_rec, sizeof(struct pebs_rec), 1, tmem_trace_fp);
+                
 
-                page->accesses = (page->accesses + 1) & (MAX_ACCESSES);    // cap accesses at 255
+                if (evt == DRAMREAD) pebs_stats.dram_accesses++;
+                else pebs_stats.rem_accesses++;
+                page->accesses++;
+                // page->accesses = (page->accesses + 1) & (MAX_ACCESSES);    // cap accesses at 255
                 // algorithm
+                // printf("page: 0x%lx, accesses: %lu\n", page->va, page->accesses);
                 if (page->accesses >= HOT_THRESHOLD) {
+                    // printf("HOT: requesting 0x%lx, accesses: %lu\n", page->va, page->accesses);
+
                     make_hot_request(page);
                 } else {
                     make_cold_request(page);
@@ -327,9 +364,17 @@ void* pebs_scan_thread() {
                 page->accesses >>= (global_clock - page->local_clock);
                 page->local_clock = global_clock;
 
-                if (samples_since_cool >= SAMPLE_COOLING_THRESHOLD) {
+                // if (samples_since_cool >= SAMPLE_COOLING_THRESHOLD) {
+                //     global_clock++;
+                //     samples_since_cool = 0;
+                //     uint64_t cur_cyc = rdtscp();
+                //     printf("cyc since last cool: %lu\n", cur_cyc - last_cyc_cool);
+                //     last_cyc_cool = cur_cyc;
+                // }
+                uint64_t cur_cyc = rdtscp();
+                if (cur_cyc - last_cyc_cool > CYC_COOL_THRESHOLD) {
                     global_clock++;
-                    samples_since_cool = 0;
+                    last_cyc_cool = cur_cyc;
                 }
             }
         }
@@ -344,24 +389,47 @@ void* pebs_scan_thread() {
 void tmem_migrate_pages(struct tmem_page** pages, uint64_t num_pages, int node) {
     unsigned long nodemask = 1UL << node;
 
-    void *addrs[PAGE_SIZE / BASE_PAGE_SIZE];
     for (uint64_t page_idx = 0; page_idx < num_pages; page_idx++) {
-        
+        if (mbind(pages[page_idx]->va_start, pages[page_idx]->size, MPOL_BIND, &nodemask, 64, MPOL_MF_MOVE | MPOL_MF_STRICT) == -1) {
+            perror("mbind");
+            printf("mbind failed %p\n", pages[page_idx]->va_start);
+        } else {
+            pages[page_idx]->in_dram = (node == DRAM_NODE) ? IN_DRAM : IN_REM;
+        }
     }
-    // mbind()
-
-    // char *mem;
-	// unsigned long nodemask = 1UL << node;
-
-	// mem = libc_mmap(addr, length, prot, flags, fd, offset);  
-	// if (mem == (char *)-1)
-	// 	mem = NULL;
-	// else 
-	// 	mbind(mem, length, MPOL_BIND, &nodemask, 64, 0);
-
-    // return mem; 
 }
 
+// void tmem_migrate_pages(struct tmem_page** pages, uint64_t num_pages, int node) {
+//     unsigned long nodemask = 1UL << node;
+//     int status[num_pages];
+//     int nodes[num_pages];
+//     void *mv_pages[num_pages];
+
+//     for (uint64_t i = 0; i < num_pages; i++) {
+//         mv_pages[i] = pages[i]->va_start;
+//         nodes[i] = node;
+//         pages[i]->in_dram = (node == DRAM_NODE) ? IN_DRAM : IN_REM;
+//         // if (mbind(pages[i]->va_start, pages[i]->size, MPOL_BIND, &nodemask, 64, 0) == -1) {
+//         //     perror("mbind");
+//         //     printf("mbind failed %p\n", pages[i]->va_start);
+//         // } else {
+//         //     pages[i]->in_dram = (node == DRAM_NODE) ? IN_DRAM : IN_REM;
+//         // }
+//     }
+//     int ret = move_pages(0, num_pages, mv_pages, nodes, status, MPOL_MF_MOVE);
+//     if (ret == -1) {
+//         perror("move pages");
+//         assert(0);
+//     }
+//     for (uint64_t i = 0; i < num_pages; i++) {
+//         if (status[i] != node) {
+//             if (mbind(pages[i]->va_start, pages[i]->size, MPOL_BIND, &nodemask, 64, 0) == -1) {
+//                 perror("mbind");
+//                 assert(0);
+//             }
+//         }
+//     }
+// }
 
 /*
     Reads in hot requests from pebs_scan_thread
@@ -370,7 +438,7 @@ void tmem_migrate_pages(struct tmem_page** pages, uint64_t num_pages, int node) 
     if there's no cold dram page it starts over (continues)
     then it migrates the the hot remote page(s) to dram
 */
-void *migration_thread() {
+void *migrate_thread() {
     internal_call = true;
 
     uint64_t num_loops = 0;
@@ -382,38 +450,116 @@ void *migration_thread() {
 
         // Check if any hot pages in remote memory
         // and any cold pages in dram to swap them
-        if (hot_list.numentries == 0) continue;
-        if (cold_list.numentries == 0) continue;
+        if (hot_list.numentries == 0) {
+            // LOG_DEBUG("No hot pages\n");
+            continue;
+        }
+        if (cold_list.numentries == 0) {
+            // LOG_DEBUG("No cold pages\n");
+            continue;
+        }
 
         struct tmem_page *hot_page = dequeue_fifo(&hot_list);
-        while (hot_page != NULL && !hot_page->hot) {
-            hot_page = dequeue_fifo(&hot_list);
+        LOG_DEBUG("MIG: got hot page\n");
+        struct timespec migrate_start_time = get_time();
+        // quick not strict check to end early (NOT RELIABLE CHECK)
+        if (hot_page == NULL || hot_page->in_dram == IN_DRAM 
+            || !hot_page->hot || hot_page->free) {
+            continue;
         }
-        if (hot_page == NULL) continue;
-
-        uint64_t hot_page_bytes = hot_page->size;
+        // atomic_store_explicit(&hot_page->migrating, true, memory_order_release);
 
         // Find enough cold pages in dram to match at least hot page size for swap
         uint64_t cold_page_bytes = 0;
-        uint64_t num_cold_pages = 0;
+        
         struct tmem_page *cold_pages[PAGE_SIZE / BASE_PAGE_SIZE];
+        uint64_t num_cold_pages = 0;
+find_cold_pages:
         
         while (cold_page_bytes < hot_page->size) {
+            // printf("cold_page_bytes: %lu\n", cold_page_bytes);
             struct tmem_page *cold_page = dequeue_fifo(&cold_list);
-            if (cold_page == NULL) break;
-            if (cold_page->in_dram == IN_REM || cold_page->hot) continue;
-
+            if (cold_page == NULL) {
+                if (killed(MIGRATION_THREAD)) {
+                    return NULL;
+                }
+                continue;
+            }
+            if (cold_page->in_dram == IN_REM || cold_page->hot) {
+                continue;
+            }
             cold_page_bytes += cold_page->size;
             cold_pages[num_cold_pages++] = cold_page;
-            
-        }
-        if (cold_page_bytes < hot_page->size) continue; // TODO: requeue hot_page to front of queue somehow
 
+        }
+        assert(cold_page_bytes >= hot_page->size);
+
+        // Now check all the pages we've gathered to see if they are still valid
+        // if not then go back to beginning
+        pthread_mutex_lock(&hot_page->page_lock);
+        if (hot_page->in_dram == IN_DRAM || !hot_page->hot || hot_page->free) {
+            LOG_DEBUG("Hot page invalid: 0x%lx\n", hot_page->va);
+            pthread_mutex_unlock(&hot_page->page_lock);
+            continue;
+        }
+        // Hot page is locked in
+        LOG_DEBUG("Hot page locked: 0x%lx\n", hot_page->va);
+        // Now check all cold pages. If one isn't valid, subtract it's size from the 
+        // cold_page_bytes, go back to while loop searching for cold pages.
+        uint32_t invalid_page_idxs[num_cold_pages];
+        uint64_t num_invalid_page_idxs = 0;
+        for (uint32_t i = 0; i < num_cold_pages; i++) {
+            pthread_mutex_lock(&cold_pages[i]->page_lock);
+            if (cold_pages[i]->in_dram == IN_REM || cold_pages[i]->hot || cold_pages[i]->free) {
+                cold_page_bytes -= cold_pages[i]->size;
+                invalid_page_idxs[num_invalid_page_idxs++] = i;
+                LOG_DEBUG("Cold page invalid: 0x%lx\n", cold_pages[i]->va);
+            }
+        }
+        if (num_invalid_page_idxs != 0) {
+            // compress to fill gaps in cold_pages
+            while (num_invalid_page_idxs != 0) {
+                // check if invalid page is already at end of list
+                if (invalid_page_idxs[num_invalid_page_idxs-1] == num_cold_pages - 1) {
+                    num_cold_pages--;
+                    num_invalid_page_idxs--;
+                    continue;
+                }
+                // move end of page list to fill in gap
+                cold_pages[invalid_page_idxs[num_invalid_page_idxs-1]] = cold_pages[num_cold_pages-1];
+                num_cold_pages--;
+                num_invalid_page_idxs--;
+            }
+            // Release all gathered pages and find more cold pages for the hot page
+            pthread_mutex_unlock(&hot_page->page_lock);
+            for (uint32_t i = 0; i < num_cold_pages; i++) {
+                pthread_mutex_unlock(&cold_pages[i]->page_lock);
+            }
+            num_cold_pages = 0;
+            LOG_DEBUG("Finding new cold pages\n");
+            goto find_cold_pages;
+        }
+
+        // Hot and cold pages are locked in: do migration
+        struct timespec pages_locked_time = get_time();
+        LOG_TIME("MIG: got hot page -> start migraton: %.10f\n", elapsed_time(migrate_start_time, pages_locked_time));
+        LOG_DEBUG("Migrating 0x%lx\n", hot_page->va);
+        // numa_set_preferred(REM_NODE);
         tmem_migrate_pages(cold_pages, num_cold_pages, REM_NODE);
         tmem_migrate_pages(&hot_page, 1, DRAM_NODE);
-        
+        // numa_set_preferred(DRAM_NODE);
+        pebs_stats.promotions++;
+        pebs_stats.demotions += num_cold_pages;
 
+        struct timespec migrate_end_time = get_time();
+        LOG_TIME("MIG: pages locked -> pages migrated: %.10f\n", elapsed_time(pages_locked_time, migrate_end_time));
+        LOG_TIME("MIG: got hot page -> pages migrated: %.10f\n", elapsed_time(migrate_start_time, migrate_end_time));
 
+        // Release all page locks
+        pthread_mutex_unlock(&hot_page->page_lock);
+        for (uint32_t i = 0; i < num_cold_pages; i++) {
+            pthread_mutex_unlock(&cold_pages[i]->page_lock);
+        }
 
         // swap them (migrate cold page from dram to remote)
         // then migrate hot page from remote to dram.
@@ -435,7 +581,45 @@ void start_pebs_thread() {
 }
 
 void start_migrate_thread() {
-    int s = pthread_create(&internal_threads[MIGRATION_THREAD], NULL, migration_thread, NULL);
+    int s = pthread_create(&internal_threads[MIGRATION_THREAD], NULL, migrate_thread, NULL);
     assert(s == 0);
 }
 
+void pebs_init(void) {
+    internal_call = true;
+
+    for (int i = 0; i < NUM_INTERNAL_THREADS; i++) {
+        atomic_store(&kill_internal_threads[i], false);
+    }
+
+#if PEBS_STATS == 1
+    LOG_DEBUG("pebs_stats: %d\n", PEBS_STATS);
+    start_pebs_stats_thread();
+#endif
+
+    tmem_trace_fp = fopen("tmem_trace.bin", "wb");
+    if (tmem_trace_fp == NULL) {
+        perror("tmem_trace file fopen");
+    }
+    assert(tmem_trace_fp != NULL);
+
+    trace_fp = fopen("trace.bin", "wb");
+    if (trace_fp == NULL) {
+        perror("trace file fopen");
+    }
+    assert(trace_fp != NULL);
+
+    int pebs_start_cpu = 0;
+    int num_cores = PEBS_NPROCS;
+    
+    for (int i = pebs_start_cpu; i < pebs_start_cpu + num_cores; i++) {
+        perf_page[i][DRAMREAD] = perf_setup(0x1d3, 0, i, i * 2, DRAMREAD);      // MEM_LOAD_L3_MISS_RETIRED.LOCAL_DRAM, mem_load_uops_l3_miss_retired.local_dram        
+        perf_page[i][REMREAD] = perf_setup(0x4d3, 0, i, i * 2, REMREAD);     // MEM_LOAD_RETIRED.LOCAL_PMM        
+    }
+
+    start_pebs_thread();
+
+    start_migrate_thread();
+
+    internal_call = false;
+}

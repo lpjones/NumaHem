@@ -14,43 +14,27 @@
 #define DRAM_NODE 0
 #define REM_NODE 1
 
-// #define PAGE_SIZE 4096ULL              // 4KB
+// #define PAGE_SIZE 4096UL              // 4KB
+// #define PAGE_SIZE (1 * (1024UL * 1024UL))
 #define PAGE_SIZE (2 * (1024UL * 1024UL)) // 2MB
 #define BASE_PAGE_SIZE 4096
 
 #define PAGE_MASK (~(PAGE_SIZE - 1))
 #define BASE_PAGE_MASK (~(BASE_PAGE_SIZE - 1))
 
-#define DRAM_BUFFER (1 * 1024L * 1024L * 1024L)     // How much to leave available on DRAM node
+// Use either DRAM_BUFFER or DRAM_SIZE
+// #define DRAM_BUFFER (1 * 1024L * 1024L * 1024L)     // How much to leave available on DRAM node
+
+#define DRAM_SIZE (2 * 1024L * 1024L * 1024L)
 
 
 extern struct fifo_list hot_list;
 extern struct fifo_list cold_list;
+extern struct fifo_list free_list;
 
 extern long dram_free;
 extern long dram_size;
 extern long dram_used;
-// struct hemem_page {
-//   uint64_t va;
-//   uint64_t devdax_offset;
-//   bool in_dram;
-//   enum pagetypes pt;
-//   volatile bool migrating;
-//   bool present;
-//   bool written;
-//   bool hot;
-//   uint64_t naccesses;
-//   uint64_t migrations_up, migrations_down;
-//   uint64_t local_clock;
-//   bool ring_present;
-//   uint64_t accesses[NPBUFTYPES];
-//   uint64_t tot_accesses[NPBUFTYPES];
-//   pthread_mutex_t page_lock;
-
-//   UT_hash_handle hh;
-//   struct hemem_page *next, *prev;
-//   struct fifo_list *list;
-// };
 
 enum {
     IN_DRAM,
@@ -69,10 +53,12 @@ struct tmem_page {
     UT_hash_handle hh;
     struct tmem_page *next, *prev;
     struct fifo_list *list;
-\
-    uint8_t in_dram;
+
+    // Page states
+    _Atomic uint8_t in_dram;
+    _Atomic bool hot;
+    _Atomic bool free;
     _Atomic bool migrating;
-    bool hot;
 };
 
 void tmem_init();
