@@ -35,6 +35,8 @@ extern struct fifo_list free_list;
 extern long dram_free;
 extern long dram_size;
 extern long dram_used;
+extern pthread_mutex_t mmap_lock;
+extern _Atomic bool dram_lock;
 
 enum {
     IN_DRAM,
@@ -63,7 +65,7 @@ struct tmem_page {
 
 void tmem_init();
 void* tmem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
-int tmem_munmap();
+int tmem_munmap(void *addr, size_t length);
 void tmem_cleanup();
 struct tmem_page* find_page(uint64_t va);
 

@@ -11,6 +11,7 @@ long dram_free = 0;
 long dram_size = 0;
 long dram_used = 0;
 
+_Atomic bool dram_lock = false;
 
 // If the allocations are smaller than the PAGE_SIZE it's possible to 
 void add_page(struct tmem_page *page) {
@@ -100,9 +101,10 @@ void* tmem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t of
     assert(p != MAP_FAILED);
 
     pthread_mutex_lock(&mmap_lock);
-    if (dram_used + length <= dram_size) {
+    if (__atomic_load_n(&dram_used, __ATOMIC_ACQUIRE) + length <= dram_size && atomic_load_explicit(&dram_lock, memory_order_acquire) == false) {
         // can allocate all on dram
-        dram_used += length;
+        __atomic_fetch_add(&dram_used, length, __ATOMIC_RELEASE);
+        // dram_used += length;
         pthread_mutex_unlock(&mmap_lock);
         LOG_DEBUG("MMAP: All DRAM\n");
 
@@ -114,7 +116,7 @@ void* tmem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t of
         
         p_dram = p;
         p_rem = p_dram + length + 1;    // Used later to check which node page is in
-    } else if (dram_used + PAGE_SIZE > dram_size) {
+    } else if (dram_used + PAGE_SIZE > dram_size || atomic_load_explicit(&dram_lock, memory_order_acquire)) {
         pthread_mutex_unlock(&mmap_lock);
         LOG_DEBUG("MMAP: All Remote\n");
         // dram full, all on remote
@@ -126,7 +128,8 @@ void* tmem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t of
     } else {
         // split between dram and remote
         uint64_t dram_mmap_size = PAGE_ROUND_DOWN(dram_size - dram_used);
-        dram_used += dram_mmap_size;
+        // dram_used += dram_mmap_size;
+        __atomic_fetch_add(&dram_used, dram_mmap_size, __ATOMIC_RELEASE);
         pthread_mutex_unlock(&mmap_lock);
         
         uint64_t rem_mmap_size = length - dram_mmap_size;
@@ -164,9 +167,10 @@ void* tmem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t of
         // printf("recycling pages\n");
         struct tmem_page *page = dequeue_fifo(&free_list);
         if (page == NULL) break;
+        pthread_mutex_lock(&page->page_lock);
 
         // use lock to cause atomic update of page
-        pthread_mutex_lock(&page->page_lock);
+        assert(page->free);
         page->va_start = p + (i * PAGE_SIZE);
         if (length - (i * PAGE_SIZE) < PAGE_SIZE) {
             page->va = (uint64_t)(page->va_start);
@@ -183,15 +187,15 @@ void* tmem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t of
         page->migrating = false;
         page->local_clock = 0;
 
-        page->prev = NULL;
-        page->next = NULL;
+        // page->prev = NULL;
+        // page->next = NULL;
 
 
         page->in_dram = (page->va_start >= p_rem) ? IN_REM : IN_DRAM;
         page->hot = false;
         page->free = false;
         page->migrating = false;
-        page->list = NULL;
+        assert(page->list == NULL);
         if (page->in_dram == IN_DRAM) {
             enqueue_fifo(&cold_list, page);
         }
@@ -275,9 +279,10 @@ int tmem_munmap(void *addr, size_t length) {
         struct tmem_page *page = find_page(va);
         if (page != NULL) {
             pthread_mutex_lock(&page->page_lock);
+            assert(page->free == false);
             page->free = true;
             remove_page(page);
-            if (page->in_dram == DRAM_NODE) {
+            if (page->in_dram == IN_DRAM) {
                 dram_used -= page->size;
             }
             pebs_stats.mem_allocated -= page->size;

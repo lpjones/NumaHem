@@ -1,4 +1,4 @@
-CC = gcc
+CC = clang
 # CFLAGS = -g -Wall -O3 -fPIC
 CFLAGS = -g3 -Wall -O0 -fPIC
 LDFLAGS = -shared
