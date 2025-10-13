@@ -88,7 +88,7 @@ static struct perf_event_mmap_page* perf_setup(__u64 config, __u64 config1, uint
     attr.exclude_callchain_kernel = 1;
     attr.exclude_callchain_user = 1;
     attr.precise_ip = 1;
-
+    
     pfd[cpu_idx][type] = perf_event_open(&attr, -1, cpu, -1, 0);
     assert(pfd[cpu_idx][type] != -1);
 
@@ -180,9 +180,10 @@ struct perf_sample read_perf_sample(uint32_t cpu_idx, uint8_t event) {
     uint64_t hdr_idx = tail & mask;
 
     /* copy header (handles header split) */
-    struct perf_event_header hdr_tmp;
+    struct perf_event_header *hdr_tmp;
     if (hdr_idx + sizeof(hdr_tmp) <= data_size) {
-        memcpy(&hdr_tmp, data + hdr_idx, sizeof(hdr_tmp));
+        hdr_tmp = (struct perf_event_header *)(data + hdr_idx);
+        // memcpy(&hdr_tmp, data + hdr_idx, sizeof(hdr_tmp));
     } else {
         pebs_stats.wrapped_headers++;
         uint64_t first = data_size - hdr_idx;
@@ -190,14 +191,14 @@ struct perf_sample read_perf_sample(uint32_t cpu_idx, uint8_t event) {
         memcpy((char*)&hdr_tmp + first, data, sizeof(hdr_tmp) - first);
     }
 
-    if (hdr_tmp.size == 0) return rec;
+    if (hdr_tmp->size == 0) return rec;
 
-    if (avail < hdr_tmp.size) return rec; /* not fully published yet */
+    if (avail < hdr_tmp->size) return rec; /* not fully published yet */
 
     /* If the record body is contiguous (no wrap), handle it quickly.
        Otherwise, drop it. */
     uint64_t rec_idx = hdr_idx;
-    uint32_t rsize = hdr_tmp.size;
+    uint32_t rsize = hdr_tmp->size;
     if (rec_idx + rsize <= data_size) {
         /* contiguous: parse directly from buffer (no heap) */
         struct perf_event_header *hdr = (struct perf_event_header *)(data + rec_idx);
@@ -252,8 +253,7 @@ void make_hot_request(struct tmem_page* page) {
     page->hot = true;
     
     // add to hot list if:
-    // page is not already in hot list and
-    // page is in remote memory
+    // page is not already in hot list and in remote mem
     if (page->list != &hot_list && page->in_dram == IN_REM) {
         // either was in remote mem or just got dequeued
         // from cold list in migrate thread
@@ -264,6 +264,7 @@ void make_hot_request(struct tmem_page* page) {
         }
         assert(page->list == NULL);
         enqueue_fifo(&hot_list, page);
+
     }
     // printf("page is either already in hot list or is in remote memory\n");
     
@@ -302,12 +303,12 @@ void make_cold_request(struct tmem_page* page) {
 void* pebs_scan_thread() {
     internal_call = true;
     // set cpu
-    // cpu_set_t cpuset;
-    // CPU_ZERO(&cpuset);
-    // CPU_SET(PEBS_SCAN_CPU, &cpuset);
-    // // pthread_t thread_id = pthread_self();
-    // int s = pthread_setaffinity_np(internal_threads[PEBS_THREAD], sizeof(cpu_set_t), &cpuset);
-    // assert(s == 0);
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(PEBS_SCAN_CPU, &cpuset);
+    // pthread_t thread_id = pthread_self();
+    int s = pthread_setaffinity_np(internal_threads[PEBS_THREAD], sizeof(cpu_set_t), &cpuset);
+    assert(s == 0);
     // pebs_init();
 
     // uint64_t samples_since_cool = 0;
@@ -329,6 +330,7 @@ void* pebs_scan_thread() {
                 // samples_since_cool++;
                 // struct pebs_rec sample = read_perf_sample(i, j);
                 struct perf_sample sample = read_perf_sample(cpu_idx, evt);
+                continue;
                 if (sample.addr == 0) continue;
 
                 uint64_t addr_aligned = sample.addr & PAGE_MASK;
@@ -347,17 +349,18 @@ void* pebs_scan_thread() {
                     .evt = evt
                 };
                 fwrite(&p_rec, sizeof(struct pebs_rec), 1, tmem_trace_fp);
+
+                if (page->migrated) {
+                    LOG_DEBUG("PEBS: accessed migrated page: 0x%lx\n", page->va);
+                }
                 
 
                 if (evt == DRAMREAD) pebs_stats.dram_accesses++;
                 else pebs_stats.rem_accesses++;
                 page->accesses++;
-                // page->accesses = (page->accesses + 1) & (MAX_ACCESSES);    // cap accesses at 255
-                // algorithm
-                // printf("page: 0x%lx, accesses: %lu\n", page->va, page->accesses);
-                if (page->accesses >= HOT_THRESHOLD) {
-                    // printf("HOT: requesting 0x%lx, accesses: %lu\n", page->va, page->accesses);
 
+                if (page->accesses >= HOT_THRESHOLD) {
+                    LOG_DEBUG("PEBS: Made hot: 0x%lx\n", page->va);
                     make_hot_request(page);
                 } else {
                     make_cold_request(page);
@@ -376,7 +379,8 @@ void* pebs_scan_thread() {
                 // }
                 uint64_t cur_cyc = rdtscp();
                 if (cur_cyc - last_cyc_cool > CYC_COOL_THRESHOLD) {
-                    global_clock++;
+                    // global_clock++;
+                    __atomic_fetch_add(&global_clock, 1, __ATOMIC_RELEASE);
                     last_cyc_cool = cur_cyc;
                 }
             }
@@ -386,49 +390,52 @@ void* pebs_scan_thread() {
     return NULL;
 }
 
-// Some pages might not have faulted yet and don't exist
-// So use mbind to set future faults to be on the right numa node
-// and use the flag MPOL_MF_MOVE to move the pages that do exist to the numa node
-void tmem_migrate_pages(struct tmem_page** pages, uint64_t num_pages, int node) {
+// void tmem_migrate_page(struct tmem_page *page, int node) {
+//     // copy page to tmp location
+//     void *p = libc_mmap(NULL, page->size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+//     memcpy(page->va_start, p, page->size);
+
+
+// }
+
+void tmem_migrate_page(struct tmem_page *page, int node) {
     unsigned long nodemask = 1UL << node;
 
-    for (uint64_t page_idx = 0; page_idx < num_pages; page_idx++) {
-        if (mbind(pages[page_idx]->va_start, pages[page_idx]->size, MPOL_BIND, &nodemask, 64, MPOL_MF_MOVE | MPOL_MF_STRICT) == -1) {
-            perror("mbind");
-            printf("mbind failed %p\n", pages[page_idx]->va_start);
+    if (mbind(page->va_start, page->size, MPOL_BIND, &nodemask, 64, MPOL_MF_MOVE | MPOL_MF_STRICT) == -1) {
+        perror("mbind");
+        printf("mbind failed %p\n", page->va_start);
+    } else {
+        if (node == DRAM_NODE) {
+            // was migrated to dram
+            page->in_dram = IN_DRAM;
+            page->hot = true;
+            enqueue_fifo(&hot_list, page);
         } else {
-            pages[page_idx]->in_dram = (node == DRAM_NODE) ? IN_DRAM : IN_REM;
+            page->in_dram = IN_REM;
+            page->hot = false;
         }
     }
 }
 
+// Some pages might not have faulted yet and don't exist
+// So use mbind to set future faults to be on the right numa node
+// and use the flag MPOL_MF_MOVE to move the pages that do exist to the numa node
 // void tmem_migrate_pages(struct tmem_page** pages, uint64_t num_pages, int node) {
 //     unsigned long nodemask = 1UL << node;
-//     int status[num_pages];
-//     int nodes[num_pages];
-//     void *mv_pages[num_pages];
 
-//     for (uint64_t i = 0; i < num_pages; i++) {
-//         mv_pages[i] = pages[i]->va_start;
-//         nodes[i] = node;
-//         pages[i]->in_dram = (node == DRAM_NODE) ? IN_DRAM : IN_REM;
-//         // if (mbind(pages[i]->va_start, pages[i]->size, MPOL_BIND, &nodemask, 64, 0) == -1) {
-//         //     perror("mbind");
-//         //     printf("mbind failed %p\n", pages[i]->va_start);
-//         // } else {
-//         //     pages[i]->in_dram = (node == DRAM_NODE) ? IN_DRAM : IN_REM;
-//         // }
-//     }
-//     int ret = move_pages(0, num_pages, mv_pages, nodes, status, MPOL_MF_MOVE);
-//     if (ret == -1) {
-//         perror("move pages");
-//         assert(0);
-//     }
-//     for (uint64_t i = 0; i < num_pages; i++) {
-//         if (status[i] != node) {
-//             if (mbind(pages[i]->va_start, pages[i]->size, MPOL_BIND, &nodemask, 64, 0) == -1) {
-//                 perror("mbind");
-//                 assert(0);
+//     for (uint64_t page_idx = 0; page_idx < num_pages; page_idx++) {
+//         if (mbind(pages[page_idx]->va_start, pages[page_idx]->size, MPOL_BIND, &nodemask, 64, MPOL_MF_MOVE | MPOL_MF_STRICT) == -1) {
+//             perror("mbind");
+//             printf("mbind failed %p\n", pages[page_idx]->va_start);
+//         } else {
+//             if (node == DRAM_NODE) {
+//                 // was migrated to dram
+//                 pages[page_idx]->in_dram = IN_DRAM;
+//                 pages[page_idx]->hot = true;
+//                 enqueue_fifo(&hot_list, pages[page_idx]);
+//             } else {
+//                 pages[page_idx]->in_dram = IN_REM;
+//                 pages[page_idx]->hot = false;
 //             }
 //         }
 //     }
@@ -459,10 +466,11 @@ void *migrate_thread() {
         pthread_mutex_lock(&hot_page->page_lock);
 
         assert(hot_page != NULL);
-        if (hot_page->list != NULL || !hot_page->hot || hot_page->in_dram != IN_REM) {
+        if (hot_page->list != NULL || hot_page->in_dram == IN_DRAM) {
             pthread_mutex_unlock(&hot_page->page_lock);
             continue;
         }
+        
         LOG_DEBUG("MIG: got hot page: 0x%lx\n", hot_page->va);
 
         // have a valid hot page. Now get cold pages
@@ -473,11 +481,14 @@ void *migrate_thread() {
         if (bytes_free >= hot_page->size) {
             LOG_DEBUG("MIG: enough dram: 0x%lx\n", hot_page->va);
             // Enough space in dram, just migrate hot page
-            tmem_migrate_pages(&hot_page, 1, DRAM_NODE);
+            // tmem_migrate_pages(&hot_page, 1, DRAM_NODE);
+            tmem_migrate_page(hot_page, DRAM_NODE);
+            hot_page->migrated = true;
             pebs_stats.promotions++;
             
             __atomic_fetch_add(&dram_used, hot_page->size, __ATOMIC_RELEASE);
             atomic_store_explicit(&dram_lock, false, memory_order_release);
+            LOG_DEBUG("MIG: Finished migration: 0x%lx\n", hot_page->va);
 
             pthread_mutex_unlock(&hot_page->page_lock);
             continue;
@@ -490,7 +501,7 @@ void *migrate_thread() {
             if (cold_page == NULL) {
                 // cold list is empty, abort
                 // requeue hot page (kind of bad idea but oh well)
-                enqueue_fifo(&hot_list, hot_page);
+                // enqueue_fifo(&hot_list, hot_page);
                 pthread_mutex_unlock(&hot_page->page_lock);
 
                 // enable dram mmap with updated dram_used
@@ -502,12 +513,15 @@ void *migrate_thread() {
             }
             assert(cold_page != NULL);
             pthread_mutex_lock(&cold_page->page_lock);
-            if (cold_page->hot || cold_page->list != NULL || cold_page->in_dram != IN_DRAM) {
-                // invalid cold page, skip
+            if (cold_page->list != NULL || cold_page->in_dram == IN_REM || cold_page->hot) {
                 pthread_mutex_unlock(&cold_page->page_lock);
                 continue;
             }
-            tmem_migrate_pages(&cold_page, 1, REM_NODE);
+            assert(cold_page->in_dram == IN_DRAM && !cold_page->hot);
+
+            // tmem_migrate_pages(&cold_page, 1, REM_NODE);
+            tmem_migrate_page(cold_page, REM_NODE);
+            cold_page->migrated = true;
             cold_bytes += cold_page->size;
             LOG_DEBUG("MIG: demoted 0x%lx\n", cold_page->va);
             pthread_mutex_unlock(&cold_page->page_lock);
@@ -516,179 +530,19 @@ void *migrate_thread() {
         if (cold_page == NULL) continue;
         // now enough space in dram
         LOG_DEBUG("MIG: now enough space: 0x%lx\n", hot_page->va);
-        tmem_migrate_pages(&hot_page, 1, DRAM_NODE);
+        // tmem_migrate_pages(&hot_page, 1, DRAM_NODE);
+        tmem_migrate_page(hot_page, DRAM_NODE);
+        hot_page->migrated = true;
         pebs_stats.promotions++;
 
         // enable dram mmap
         __atomic_fetch_add(&dram_used, hot_page->size - cold_bytes, __ATOMIC_RELEASE);
         atomic_store_explicit(&dram_lock, false, memory_order_release);
-
-
+        LOG_DEBUG("MIG: Finished migration: 0x%lx\n", hot_page->va);
 
         pthread_mutex_unlock(&hot_page->page_lock);
-
-
     }
 }
-// void *migrate_thread() {
-//     internal_call = true;
-
-//     uint64_t num_loops = 0;
-//     while (true) {
-//         if (!(num_loops++ & 0xF) && killed(MIGRATION_THREAD)) return NULL;
-//         // Check if any hot pages in remote memory
-//         // and any cold pages in dram to swap them
-
-//         struct tmem_page *hot_page, *cold_page;
-
-//         // Peaks at queue instead of dequeuing it so we can
-//         // abort without having a dangling hot page
-//         do {
-//             if (!(num_loops++ & 0xF) && killed(MIGRATION_THREAD)) return NULL;
-//             next_page(&hot_list, NULL, &hot_page);
-//         } while (hot_page == NULL);
-//         pthread_mutex_lock(&hot_page->page_lock);
-
-//         // check if page was freed or changed to cold between peaking and locking
-//         // TODO: could also have been freed and allocated again and then made hot
-//         if (hot_page->list == &free_list || !hot_page->hot) {
-//             pthread_mutex_unlock(&hot_page->page_lock);
-//             continue;
-//         }
-//         uint64_t hot_page_va = hot_page->va;    // store va to compare later to see if same page
-//         pthread_mutex_unlock(&hot_page->page_lock);
-        
-//         // Tricky part: need enough cold pages to match at least hot_page->size
-//         // Could be not enough cold pages, if so want to release hot page lock
-//         // so we don't stall everything
-//         uint64_t cold_page_bytes = 0;
-//         uint64_t hot_page_size = hot_page->size;    // could be wrong size, but later check for va solves it
-
-//         while (cold_page_bytes < hot_page->size) {
-            
-//         }
-
-//         // Can dequeue cold pages here since putting them back at end of queue is fine
-//         // If abort need to remember to requeue these cold pages
-//         do {
-//             if (!(num_loops++ & 0xF) && killed(MIGRATION_THREAD)) return NULL;
-//             cold_page = dequeue_fifo(&cold_list);
-//         } while (cold_page == NULL);
-
-
-//         struct tmem_page *hot_page = dequeue_fifo(&hot_list);
-//         LOG_DEBUG("MIG: got hot page\n");
-//         struct timespec migrate_start_time = get_time();
-//         // quick not strict check to end early (NOT RELIABLE CHECK)
-//         pthread_mutex_lock(&hot_page->page_lock);
-//         // Could have been made cold by PEBS, or freed by munmap
-//         assert(hot_page != NULL);
-//         if (!hot_page->hot || hot_page->list == &free_list) {
-//             pthread_mutex_unlock(&hot_page->page_lock);
-//         }
-//         if (hot_page == NULL || hot_page->in_dram == IN_DRAM 
-//             || !hot_page->hot || hot_page->free) {
-//             pthread_mutex_unlock(&hot_page->page_lock);
-//             continue;
-//         }
-//         pthread_mutex_unlock(&hot_page->page_lock);
-
-//         // Find enough cold pages in dram to match at least hot page size for swap
-//         uint64_t cold_page_bytes = 0;
-        
-//         struct tmem_page *cold_pages[PAGE_SIZE / BASE_PAGE_SIZE];
-//         uint64_t num_cold_pages = 0;
-// find_cold_pages:
-        
-//         while (cold_page_bytes < hot_page->size) {
-//             // printf("cold_page_bytes: %lu\n", cold_page_bytes);
-//             struct tmem_page *cold_page = dequeue_fifo(&cold_list);
-//             if (cold_page == NULL) {    // If no cold pages give up
-//                 break;
-//             }
-
-//             if (cold_page->in_dram == IN_REM || cold_page->hot) {
-//                 continue;
-//             }
-//             cold_page_bytes += cold_page->size;
-//             cold_pages[num_cold_pages++] = cold_page;
-
-//         }
-//         if (cold_page_bytes < hot_page->size) continue;
-//         assert(cold_page_bytes >= hot_page->size);
-
-//         // Now check all the pages we've gathered to see if they are still valid
-//         // if not then go back to beginning
-//         pthread_mutex_lock(&hot_page->page_lock);
-//         if (hot_page->in_dram == IN_DRAM || !hot_page->hot || hot_page->free) {
-//             LOG_DEBUG("Hot page invalid: 0x%lx\n", hot_page->va);
-//             pthread_mutex_unlock(&hot_page->page_lock);
-//             continue;
-//         }
-//         // Hot page is locked in
-//         LOG_DEBUG("Hot page locked: 0x%lx\n", hot_page->va);
-//         // Now check all cold pages. If one isn't valid, subtract it's size from the 
-//         // cold_page_bytes, go back to while loop searching for cold pages.
-//         uint32_t invalid_page_idxs[num_cold_pages];
-//         uint64_t num_invalid_page_idxs = 0;
-//         for (uint32_t i = 0; i < num_cold_pages; i++) {
-//             pthread_mutex_lock(&cold_pages[i]->page_lock);
-//             if (cold_pages[i]->in_dram == IN_REM || cold_pages[i]->hot || cold_pages[i]->free) {
-//                 cold_page_bytes -= cold_pages[i]->size;
-//                 invalid_page_idxs[num_invalid_page_idxs++] = i;
-//                 pthread_mutex_unlock(&cold_pages[i]->page_lock);
-//                 LOG_DEBUG("Cold page invalid: 0x%lx\n", cold_pages[i]->va);
-//             }
-//         }
-//         if (num_invalid_page_idxs != 0) {
-//             // compress to fill gaps in cold_pages
-//             while (num_invalid_page_idxs != 0) {
-//                 // check if invalid page is already at end of list
-//                 if (invalid_page_idxs[num_invalid_page_idxs-1] == num_cold_pages - 1) {
-//                     num_cold_pages--;
-//                     num_invalid_page_idxs--;
-//                     continue;
-//                 }
-//                 // move end of page list to fill in gap
-//                 cold_pages[invalid_page_idxs[num_invalid_page_idxs-1]] = cold_pages[num_cold_pages-1];
-//                 num_cold_pages--;
-//                 num_invalid_page_idxs--;
-//             }
-//             // Release all gathered pages and find more cold pages for the hot page
-//             pthread_mutex_unlock(&hot_page->page_lock);
-//             for (uint32_t i = 0; i < num_cold_pages; i++) {
-//                 pthread_mutex_unlock(&cold_pages[i]->page_lock);
-//             }
-//             num_cold_pages = 0;
-//             LOG_DEBUG("Finding new cold pages\n");
-//             goto find_cold_pages;
-//         }
-
-//         // Hot and cold pages are locked in: do migration
-//         struct timespec pages_locked_time = get_time();
-//         LOG_TIME("MIG: got hot page -> start migraton: %.10f\n", elapsed_time(migrate_start_time, pages_locked_time));
-//         LOG_DEBUG("Migrating 0x%lx\n", hot_page->va);
-//         // numa_set_preferred(REM_NODE);
-//         tmem_migrate_pages(cold_pages, num_cold_pages, REM_NODE);
-//         tmem_migrate_pages(&hot_page, 1, DRAM_NODE);
-//         // numa_set_preferred(DRAM_NODE);
-//         pebs_stats.promotions++;
-//         pebs_stats.demotions += num_cold_pages;
-
-//         struct timespec migrate_end_time = get_time();
-//         LOG_TIME("MIG: pages locked -> pages migrated: %.10f\n", elapsed_time(pages_locked_time, migrate_end_time));
-//         LOG_TIME("MIG: got hot page -> pages migrated: %.10f\n", elapsed_time(migrate_start_time, migrate_end_time));
-        
-//         dram_used -= cold_page_bytes - hot_page->size;
-//         // Release all page locks
-//         pthread_mutex_unlock(&hot_page->page_lock);
-//         for (uint32_t i = 0; i < num_cold_pages; i++) {
-//             pthread_mutex_unlock(&cold_pages[i]->page_lock);
-//         }
-//     }
-//     LOG_DEBUG("Migration thread killed\n");
-//     return NULL;
-// }
 
 void start_pebs_thread() {
     int s = pthread_create(&internal_threads[PEBS_THREAD], NULL, pebs_scan_thread, NULL);

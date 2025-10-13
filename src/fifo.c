@@ -6,17 +6,17 @@
 
 void enqueue_fifo(struct fifo_list *queue, struct tmem_page *entry)
 {
-  if (queue == &hot_list) {
-    LOG_DEBUG("enqueue_fifo(hot, %p) %lu\n", entry, queue->numentries);
-  }
-  else if (queue == &cold_list) {
-    LOG_DEBUG("enqueue_fifo(cold, %p) %lu\n", entry, queue->numentries);
-  }
-  else if (queue == &free_list) {
-    LOG_DEBUG("enqueue_fifo(free, %p) %lu\n", entry, queue->numentries);
-  }
-  else 
-    LOG_DEBUG("enqueue_fifo(%p, %p) %lu\n", queue, entry, queue->numentries);
+  // if (queue == &hot_list) {
+  //   LOG_DEBUG("enqueue_fifo(hot, %p) %lu\n", entry, queue->numentries);
+  // }
+  // else if (queue == &cold_list) {
+  //   LOG_DEBUG("enqueue_fifo(cold, %p) %lu\n", entry, queue->numentries);
+  // }
+  // else if (queue == &free_list) {
+  //   LOG_DEBUG("enqueue_fifo(free, %p) %lu\n", entry, queue->numentries);
+  // }
+  // else 
+  //   LOG_DEBUG("enqueue_fifo(%p, %p) %lu\n", queue, entry, queue->numentries);
 
   pthread_mutex_lock(&(queue->list_lock));
   assert(entry->list == NULL);
@@ -44,17 +44,17 @@ struct tmem_page *dequeue_fifo(struct fifo_list *queue)
   if (__atomic_load_n(&queue->numentries, __ATOMIC_ACQUIRE) == 0) {
     return NULL;
   }
-  if (queue == &hot_list) {
-    LOG_DEBUG(" dequeue_fifo(hot, ");
-  }
-  else if (queue == &cold_list) {
-    LOG_DEBUG(" dequeue_fifo(cold, ");
-  }
-  else if (queue == &free_list) {
-    LOG_DEBUG(" dequeue_fifo(free, ");
-  }
-  else 
-    LOG_DEBUG(" dequeue_fifo(%p, ", queue);
+  // if (queue == &hot_list) {
+  //   LOG_DEBUG(" dequeue_fifo(hot, ");
+  // }
+  // else if (queue == &cold_list) {
+  //   LOG_DEBUG(" dequeue_fifo(cold, ");
+  // }
+  // else if (queue == &free_list) {
+  //   LOG_DEBUG(" dequeue_fifo(free, ");
+  // }
+  // else 
+  //   LOG_DEBUG(" dequeue_fifo(%p, ", queue);
   
   pthread_mutex_lock(&(queue->list_lock));
   struct tmem_page *ret = queue->last;
@@ -81,24 +81,24 @@ struct tmem_page *dequeue_fifo(struct fifo_list *queue)
 
   // pthread_mutex_unlock(&ret->page_lock); // caller must unlock page
   pthread_mutex_unlock(&(queue->list_lock));
-  LOG_DEBUG("%p) %lu\n", ret, queue->numentries);
+  // LOG_DEBUG("%p) %lu\n", ret, queue->numentries);
 
   return ret;
 }
 
 void page_list_remove_page(struct fifo_list *list, struct tmem_page *page)
 {
-  if (list == &hot_list) {
-    LOG_DEBUG("  page_list_remove_page(hot, %p) %lu\n", page, list->numentries);
-  }
-  else if (list == &cold_list) {
-    LOG_DEBUG("  page_list_remove_page(cold, %p) %lu\n", page, list->numentries);
-  }
-  else if (list == &free_list) {
-    LOG_DEBUG("  page_list_remove_page(free, %p) %lu\n", page, list->numentries);
-  }
-  else 
-    LOG_DEBUG("  page_list_remove_page(%p, %p) %lu\n", list, page, list->numentries);
+  // if (list == &hot_list) {
+  //   LOG_DEBUG("  page_list_remove_page(hot, %p) %lu\n", page, list->numentries);
+  // }
+  // else if (list == &cold_list) {
+  //   LOG_DEBUG("  page_list_remove_page(cold, %p) %lu\n", page, list->numentries);
+  // }
+  // else if (list == &free_list) {
+  //   LOG_DEBUG("  page_list_remove_page(free, %p) %lu\n", page, list->numentries);
+  // }
+  // else 
+  //   LOG_DEBUG("  page_list_remove_page(%p, %p) %lu\n", list, page, list->numentries);
 
   pthread_mutex_lock(&(list->list_lock));
   if (page->list != list) {

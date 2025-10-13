@@ -3,6 +3,7 @@
 FILE* debug_fp = NULL;
 FILE* stats_fp = NULL;
 FILE* time_fp = NULL;
+struct timespec log_start_time;
 
 void init_log_files() {
     internal_call = true;
@@ -17,4 +18,7 @@ void init_log_files() {
     assert(time_fp != NULL);
 
     internal_call = false;
+
+    // reference start time
+    log_start_time = get_time();
 }

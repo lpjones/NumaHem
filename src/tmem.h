@@ -17,7 +17,7 @@
 // #define PAGE_SIZE 4096UL              // 4KB
 // #define PAGE_SIZE (1 * (1024UL * 1024UL))
 #define PAGE_SIZE (2 * (1024UL * 1024UL)) // 2MB
-#define BASE_PAGE_SIZE 4096
+#define BASE_PAGE_SIZE 4096UL
 
 #define PAGE_MASK (~(PAGE_SIZE - 1))
 #define BASE_PAGE_MASK (~(BASE_PAGE_SIZE - 1))
@@ -25,7 +25,7 @@
 // Use either DRAM_BUFFER or DRAM_SIZE
 // #define DRAM_BUFFER (1 * 1024L * 1024L * 1024L)     // How much to leave available on DRAM node
 
-#define DRAM_SIZE (2 * 1024L * 1024L * 1024L)
+#define DRAM_SIZE (4 * 1024L * 1024L * 1024L)
 
 
 extern struct fifo_list hot_list;
@@ -61,6 +61,7 @@ struct tmem_page {
     _Atomic bool hot;
     _Atomic bool free;
     _Atomic bool migrating;
+    _Atomic bool migrated;
 };
 
 void tmem_init();

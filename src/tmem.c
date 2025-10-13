@@ -11,6 +11,9 @@ long dram_free = 0;
 long dram_size = 0;
 long dram_used = 0;
 
+static uint64_t max_tmem_va = 0;
+static uint64_t min_tmem_va = UINT64_MAX;
+
 _Atomic bool dram_lock = false;
 
 // If the allocations are smaller than the PAGE_SIZE it's possible to 
@@ -109,7 +112,7 @@ void* tmem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t of
         LOG_DEBUG("MMAP: All DRAM\n");
 
 
-        if (mbind(p, length, MPOL_BIND, &dram_nodemask, 64, MPOL_MF_MOVE)) {
+        if (mbind(p, length, MPOL_BIND, &dram_nodemask, 64, MPOL_MF_MOVE | MPOL_MF_STRICT)) {
             perror("mbind");
             assert(0);
         }
@@ -120,7 +123,7 @@ void* tmem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t of
         pthread_mutex_unlock(&mmap_lock);
         LOG_DEBUG("MMAP: All Remote\n");
         // dram full, all on remote
-        if (mbind(p, length, MPOL_BIND, &rem_nodemask, 64, MPOL_MF_MOVE)) {
+        if (mbind(p, length, MPOL_BIND, &rem_nodemask, 64, MPOL_MF_MOVE | MPOL_MF_STRICT)) {
             perror("mbind");
             assert(0);
         }
@@ -138,11 +141,11 @@ void* tmem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t of
         LOG_DEBUG("MMAP: dram: %lu, remote: %lu\n", dram_mmap_size, rem_mmap_size);
         p_dram = p;
         p_rem = p_dram + dram_mmap_size;
-        if (mbind(p_dram, dram_mmap_size, MPOL_BIND, &dram_nodemask, 64, MPOL_MF_MOVE) == -1) {
+        if (mbind(p_dram, dram_mmap_size, MPOL_BIND, &dram_nodemask, 64, MPOL_MF_MOVE | MPOL_MF_STRICT) == -1) {
             perror("mbind");
             assert(0);
         }
-        if (mbind(p_rem, rem_mmap_size, MPOL_BIND, &rem_nodemask, 64, MPOL_MF_MOVE) == -1) {
+        if (mbind(p_rem, rem_mmap_size, MPOL_BIND, &rem_nodemask, 64, MPOL_MF_MOVE | MPOL_MF_STRICT) == -1) {
             perror("mbind");
             assert(0);
         }
@@ -162,7 +165,7 @@ void* tmem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t of
 
     // recycle pages from free_tmem_pages
     uint64_t num_tmem_pages_needed = (length + PAGE_SIZE - 1) / PAGE_SIZE;
-    uint64_t i;
+    uint64_t i = 0;
     for (i = 0; free_list.numentries > 0 && num_tmem_pages_needed > 0; i++) {
         // printf("recycling pages\n");
         struct tmem_page *page = dequeue_fifo(&free_list);
@@ -181,6 +184,8 @@ void* tmem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t of
             // Align va to PAGE_SIZE address for future lookups in hashmap
             page->va = PAGE_ROUND_UP((uint64_t)(page->va_start));
         }
+        if (page->va > max_tmem_va) max_tmem_va = page->va;
+        if (page->va < min_tmem_va) min_tmem_va = page->va;
         page->mig_up = 0;
         page->mig_down = 0;
         page->accesses = 0;
@@ -195,6 +200,7 @@ void* tmem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t of
         page->hot = false;
         page->free = false;
         page->migrating = false;
+        page->migrated = false;
         assert(page->list == NULL);
         if (page->in_dram == IN_DRAM) {
             enqueue_fifo(&cold_list, page);
@@ -234,6 +240,8 @@ void* tmem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t of
             // Align va to PAGE_SIZE address for future lookups in hashmap
             page->va = PAGE_ROUND_UP((uint64_t)(page->va_start));
         }
+        if (page->va > max_tmem_va) max_tmem_va = page->va;
+        if (page->va < min_tmem_va) min_tmem_va = page->va;
         page->mig_up = 0;
         page->mig_down = 0;
         page->accesses = 0;
@@ -246,6 +254,7 @@ void* tmem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t of
         page->hot = false;
         page->free = false;
         page->migrating = false;
+        page->migrated = false;
 
         pthread_mutex_init(&page->page_lock, NULL);
         page->list = NULL;
@@ -266,6 +275,7 @@ void* tmem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t of
 int tmem_munmap(void *addr, size_t length) {
     internal_call = true;
     LOG_DEBUG("tmem_munmap: %p, length: %lu\n", addr, length);
+    LOG_DEBUG("tmem va range: 0x%lx - 0x%lx\n", min_tmem_va, max_tmem_va);
 
     uint64_t num_tmem_pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
     for (uint64_t i = 0; i < num_tmem_pages; i++) {

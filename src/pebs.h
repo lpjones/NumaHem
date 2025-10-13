@@ -41,7 +41,7 @@
 #endif
 
 #ifndef PERF_PAGES
-    #define PERF_PAGES (1 + (1 << 12))  // Uses 8GB total for 16 CPUs
+    #define PERF_PAGES (1 + (1 << 16))  // Uses 8GB total for 16 CPUs
 #endif
 
 #ifndef PEBS_NPROCS
