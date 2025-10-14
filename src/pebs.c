@@ -14,6 +14,8 @@ static FILE* tmem_trace_fp = NULL;
 static _Atomic bool kill_internal_threads[NUM_INTERNAL_THREADS];
 static pthread_t internal_threads[NUM_INTERNAL_THREADS];
 
+static _Thread_local uint64_t last_cyc_cool;
+
 static uint64_t global_clock = 0;
 
 
@@ -299,6 +301,110 @@ void make_cold_request(struct tmem_page* page) {
     pthread_mutex_unlock(&page->page_lock);
 }
 
+void process_perf_buffer(int cpu_idx, int evt) {
+    struct perf_event_mmap_page *p = perf_page[cpu_idx][evt];
+    uint64_t num_loops = 0;
+    while (p->data_head != p->data_tail || num_loops++ == 4096) {
+        struct perf_sample rec = {.addr = 0};
+        char *data = (char*)p + p->data_offset;
+        uint64_t avail = p->data_head - p->data_tail;
+
+        // LOG_DEBUG("Backlog: %lu\n", avail / (sizeof(struct perf_sample) + sizeof(struct perf_event_header)));
+
+        assert(((p->data_size - 1) & p->data_size) == 0);
+        assert(p->data_size != 0);
+
+        // header
+        uint64_t wrapped_tail = p->data_tail & (p->data_size - 1);
+        struct perf_event_header *hdr = (struct perf_event_header *)(data + wrapped_tail);
+
+        assert(hdr->size != 0);
+        assert(avail >= hdr->size);
+
+        if (wrapped_tail + hdr->size <= p->data_size) {
+            switch (hdr->type) {
+                case PERF_RECORD_SAMPLE:
+                    if (hdr->size - sizeof(struct perf_event_header) == sizeof(struct perf_sample)) {
+                        memcpy(&rec, data + wrapped_tail + sizeof(struct perf_event_header), sizeof(struct perf_sample));
+                        // rec = (struct perf_sample *)(data + wrapped_tail + sizeof(struct perf_event_header));
+                        // printf("addr: 0x%llx, ip: 0x%llx, time: %llu\n", rec->addr, rec->ip, rec->time);
+                    }
+                    break;
+                case PERF_RECORD_THROTTLE:
+                    pebs_stats.throttles++;
+                    break;
+                case PERF_RECORD_UNTHROTTLE:
+                    pebs_stats.unthrottles++;
+                    break;
+                default:
+                    pebs_stats.unknown_samples++;
+                    break;
+            }
+        } else {
+            pebs_stats.wrapped_records++;
+        }
+        p->data_tail += hdr->size;
+
+        /* Have PEBS Sample, Now check with tmem */
+        // continue;
+        if (rec.addr == 0) continue;
+
+        uint64_t addr_aligned = rec.addr & PAGE_MASK;
+        struct tmem_page *page = find_page(addr_aligned);
+
+        // Try 4KB aligned page if not 2MB aligned page
+        if (page == NULL)
+            page = find_page(rec.addr & BASE_PAGE_MASK);
+        if (page == NULL) continue;
+
+        struct pebs_rec p_rec = {
+            .va = rec.addr,
+            .ip = rec.ip,
+            .cyc = rec.time,
+            .cpu = cpu_idx,
+            .evt = evt
+        };
+        fwrite(&p_rec, sizeof(struct pebs_rec), 1, tmem_trace_fp);
+
+        // if (page->migrated) {
+        //     LOG_DEBUG("PEBS: accessed migrated page: 0x%lx\n", page->va);
+        // }
+
+        // cool off
+        page->accesses >>= (global_clock - page->local_clock);
+        page->local_clock = global_clock;
+
+        if (evt == DRAMREAD) pebs_stats.dram_accesses++;
+        else pebs_stats.rem_accesses++;
+        page->accesses++;
+
+        if (page->accesses >= HOT_THRESHOLD) {
+            LOG_DEBUG("PEBS: Made hot: 0x%lx\n", page->va);
+            make_hot_request(page);
+        } else {
+            make_cold_request(page);
+        }
+
+        
+
+        // if (samples_since_cool >= SAMPLE_COOLING_THRESHOLD) {
+        //     global_clock++;
+        //     samples_since_cool = 0;
+        //     uint64_t cur_cyc = rdtscp();
+        //     printf("cyc since last cool: %lu\n", cur_cyc - last_cyc_cool);
+        //     last_cyc_cool = cur_cyc;
+        // }
+        uint64_t cur_cyc = rdtscp();
+        if (cur_cyc - last_cyc_cool > CYC_COOL_THRESHOLD) {
+            // global_clock++;
+            // __atomic_fetch_add(&global_clock, 1, __ATOMIC_RELEASE);
+            global_clock++;
+            last_cyc_cool = cur_cyc;
+        }
+
+    }
+}
+
 
 void* pebs_scan_thread() {
     internal_call = true;
@@ -312,7 +418,7 @@ void* pebs_scan_thread() {
     // pebs_init();
 
     // uint64_t samples_since_cool = 0;
-    uint64_t last_cyc_cool = rdtscp();
+    last_cyc_cool = rdtscp();
 
     uint64_t num_loops = 0;
     
@@ -327,62 +433,7 @@ void* pebs_scan_thread() {
 
         for (int cpu_idx = pebs_start_cpu; cpu_idx < pebs_start_cpu + num_cores; cpu_idx++) {
             for(int evt = 0; evt < NPBUFTYPES; evt++) {
-                // samples_since_cool++;
-                // struct pebs_rec sample = read_perf_sample(i, j);
-                struct perf_sample sample = read_perf_sample(cpu_idx, evt);
-                continue;
-                if (sample.addr == 0) continue;
-
-                uint64_t addr_aligned = sample.addr & PAGE_MASK;
-                struct tmem_page *page = find_page(addr_aligned);
-
-                // Try 4KB aligned page if not 2MB aligned page
-                if (page == NULL)
-                    page = find_page(sample.addr & BASE_PAGE_MASK);
-                if (page == NULL) continue;
-
-                struct pebs_rec p_rec = {
-                    .va = sample.addr,
-                    .ip = sample.ip,
-                    .cyc = sample.time,
-                    .cpu = cpu_idx,
-                    .evt = evt
-                };
-                fwrite(&p_rec, sizeof(struct pebs_rec), 1, tmem_trace_fp);
-
-                if (page->migrated) {
-                    LOG_DEBUG("PEBS: accessed migrated page: 0x%lx\n", page->va);
-                }
-                
-
-                if (evt == DRAMREAD) pebs_stats.dram_accesses++;
-                else pebs_stats.rem_accesses++;
-                page->accesses++;
-
-                if (page->accesses >= HOT_THRESHOLD) {
-                    LOG_DEBUG("PEBS: Made hot: 0x%lx\n", page->va);
-                    make_hot_request(page);
-                } else {
-                    make_cold_request(page);
-                }
-
-                // cool off
-                page->accesses >>= (global_clock - page->local_clock);
-                page->local_clock = global_clock;
-
-                // if (samples_since_cool >= SAMPLE_COOLING_THRESHOLD) {
-                //     global_clock++;
-                //     samples_since_cool = 0;
-                //     uint64_t cur_cyc = rdtscp();
-                //     printf("cyc since last cool: %lu\n", cur_cyc - last_cyc_cool);
-                //     last_cyc_cool = cur_cyc;
-                // }
-                uint64_t cur_cyc = rdtscp();
-                if (cur_cyc - last_cyc_cool > CYC_COOL_THRESHOLD) {
-                    // global_clock++;
-                    __atomic_fetch_add(&global_clock, 1, __ATOMIC_RELEASE);
-                    last_cyc_cool = cur_cyc;
-                }
+                process_perf_buffer(cpu_idx, evt);
             }
         }
     }

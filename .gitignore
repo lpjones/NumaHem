@@ -5,5 +5,5 @@
 *.data.old
 *.png
 *.bin
-scripts/
-traces/
+scripts/results/
+scripts/venv/

@@ -1,5 +1,5 @@
 CC = clang
-# CFLAGS = -g -Wall -O3 -fPIC
+# CFLAGS = -Wall -O3 -fPIC
 CFLAGS = -g3 -Wall -O0 -fPIC
 LDFLAGS = -shared
 # INCLUDES = -I../../hemem-og/linux/kbuild/usr/include/

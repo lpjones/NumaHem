@@ -29,7 +29,7 @@
 #include "fifo.h"
 
 #ifndef PEBS_SCAN_CPU
-    #define PEBS_SCAN_CPU 30
+    #define PEBS_SCAN_CPU 0
 #endif
 
 #ifndef PEBS_STATS_CPU
@@ -41,7 +41,7 @@
 #endif
 
 #ifndef PERF_PAGES
-    #define PERF_PAGES (1 + (1 << 16))  // Uses 8GB total for 16 CPUs
+    #define PERF_PAGES (1 + (1 << 4))  // Uses 8GB total for 16 CPUs
 #endif
 
 #ifndef PEBS_NPROCS
