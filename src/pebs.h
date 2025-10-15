@@ -21,6 +21,7 @@
 #include <sys/mman.h>
 #include <stdlib.h>
 #include <sched.h>
+#include <sys/ioctl.h>
 
 #include "timer.h"
 #include "interpose.h"
@@ -29,7 +30,7 @@
 #include "fifo.h"
 
 #ifndef PEBS_SCAN_CPU
-    #define PEBS_SCAN_CPU 0
+    #define PEBS_SCAN_CPU 30
 #endif
 
 #ifndef PEBS_STATS_CPU

@@ -142,6 +142,18 @@ void* pebs_stats_thread() {
         pebs_stats.rem_accesses = 0;
         pebs_stats.promotions = 0;
         pebs_stats.demotions = 0;
+        pebs_stats.throttles = 0;
+        pebs_stats.unthrottles = 0;
+
+        // hack to reset pebs when it bugs out and stop recording samples
+        for (int cpu_idx = 0; cpu_idx < PEBS_NPROCS; cpu_idx++) {
+            for (int type = 0; type < NPBUFTYPES; type++) {
+                ioctl(pfd[cpu_idx][type], PERF_EVENT_IOC_DISABLE);
+                ioctl(pfd[cpu_idx][type], PERF_EVENT_IOC_RESET);
+                ioctl(pfd[cpu_idx][type], PERF_EVENT_IOC_ENABLE);
+            }
+        }
+        
 
 #ifdef DRAM_BUFFER
         // hacky way to update dram_size every second in case there's drift over time
@@ -403,6 +415,7 @@ void process_perf_buffer(int cpu_idx, int evt) {
         }
 
     }
+    p->data_tail = p->data_head;
 }
 
 
@@ -421,33 +434,83 @@ void* pebs_scan_thread() {
     last_cyc_cool = rdtscp();
 
     uint64_t num_loops = 0;
+
     
     while (true) {
-        // struct timespec start = get_time();
-        // printf("killed: %d\n", killed(PEBS_THREAD));
-        CHECK_KILLED(PEBS_THREAD);
-
+        // CHECK_KILLED(PEBS_THREAD);
 
         int pebs_start_cpu = 0;
         int num_cores = PEBS_NPROCS;
 
         for (int cpu_idx = pebs_start_cpu; cpu_idx < pebs_start_cpu + num_cores; cpu_idx++) {
             for(int evt = 0; evt < NPBUFTYPES; evt++) {
-                process_perf_buffer(cpu_idx, evt);
+                // process_perf_buffer(cpu_idx, evt);
+                struct perf_event_mmap_page *p = perf_page[cpu_idx][evt];
+                char *pbuf = (char *)p + p->data_offset;
+
+                __sync_synchronize();
+
+                if (p->data_head == p->data_tail) continue;
+
+                struct perf_event_header *ph = (struct perf_event_header *)(pbuf + (p->data_tail % p->data_size));
+                struct perf_sample *ps;
+                struct tmem_page *page;
+                switch (ph->type) {
+                    case PERF_RECORD_SAMPLE:
+                        ps = (struct perf_sample *)((char *)ph + sizeof(struct perf_event_header));
+                        assert(ps != NULL);
+                        if (ps->addr != 0) {
+                            __u64 pfn = ps->addr & PAGE_MASK;
+
+                            page = find_page(pfn);
+                            if (page != NULL) {
+                                if (page->va != 0) {
+                                    struct pebs_rec p_rec = {
+                                        .va = ps->addr,
+                                        .ip = ps->ip,
+                                        .cyc = ps->time,
+                                        .cpu = cpu_idx,
+                                        .evt = evt
+                                    };
+                                    fwrite(&p_rec, sizeof(struct pebs_rec), 1, trace_fp);
+                                    page->accesses++;
+                                    
+                                    if (page->accesses >= HOT_THRESHOLD) {
+                                        make_hot_request(page);
+                                    } else {
+                                        make_cold_request(page);
+                                    }
+
+                                    page->accesses >>= (global_clock - page->local_clock);
+                                    page->local_clock = global_clock;
+
+                                    uint64_t cur_cyc = rdtscp();
+                                    if (cur_cyc - last_cyc_cool > CYC_COOL_THRESHOLD) {
+                                        global_clock++;
+                                        last_cyc_cool = cur_cyc;
+                                    }
+                                }
+                            }
+                        }
+                        break;
+                    case PERF_RECORD_THROTTLE:
+                        pebs_stats.throttles++;
+                        break;
+                    case PERF_RECORD_UNTHROTTLE:
+                        pebs_stats.unthrottles++;
+                        break;
+                    default:
+                        pebs_stats.unknown_samples++;
+                        break;
+                    
+                }
+                p->data_tail += ph->size;
             }
         }
     }
     pebs_cleanup();
     return NULL;
 }
-
-// void tmem_migrate_page(struct tmem_page *page, int node) {
-//     // copy page to tmp location
-//     void *p = libc_mmap(NULL, page->size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-//     memcpy(page->va_start, p, page->size);
-
-
-// }
 
 void tmem_migrate_page(struct tmem_page *page, int node) {
     unsigned long nodemask = 1UL << node;
@@ -467,38 +530,6 @@ void tmem_migrate_page(struct tmem_page *page, int node) {
         }
     }
 }
-
-// Some pages might not have faulted yet and don't exist
-// So use mbind to set future faults to be on the right numa node
-// and use the flag MPOL_MF_MOVE to move the pages that do exist to the numa node
-// void tmem_migrate_pages(struct tmem_page** pages, uint64_t num_pages, int node) {
-//     unsigned long nodemask = 1UL << node;
-
-//     for (uint64_t page_idx = 0; page_idx < num_pages; page_idx++) {
-//         if (mbind(pages[page_idx]->va_start, pages[page_idx]->size, MPOL_BIND, &nodemask, 64, MPOL_MF_MOVE | MPOL_MF_STRICT) == -1) {
-//             perror("mbind");
-//             printf("mbind failed %p\n", pages[page_idx]->va_start);
-//         } else {
-//             if (node == DRAM_NODE) {
-//                 // was migrated to dram
-//                 pages[page_idx]->in_dram = IN_DRAM;
-//                 pages[page_idx]->hot = true;
-//                 enqueue_fifo(&hot_list, pages[page_idx]);
-//             } else {
-//                 pages[page_idx]->in_dram = IN_REM;
-//                 pages[page_idx]->hot = false;
-//             }
-//         }
-//     }
-// }
-
-/*
-    Reads in hot requests from pebs_scan_thread
-    For each hot request it checks if it's still hot and is in remote dram,
-    if it is then it migrates a cold dram page to remote dram
-    if there's no cold dram page it starts over (continues)
-    then it migrates the the hot remote page(s) to dram
-*/
 
 
 void *migrate_thread() {
@@ -633,8 +664,8 @@ void pebs_init(void) {
     int num_cores = PEBS_NPROCS;
     
     for (int i = pebs_start_cpu; i < pebs_start_cpu + num_cores; i++) {
-        perf_page[i][DRAMREAD] = perf_setup(0x1d3, 0, i, i * 2, DRAMREAD);      // MEM_LOAD_L3_MISS_RETIRED.LOCAL_DRAM, mem_load_uops_l3_miss_retired.local_dram        
-        perf_page[i][REMREAD] = perf_setup(0x4d3, 0, i, i * 2, REMREAD);     // MEM_LOAD_RETIRED.LOCAL_PMM        
+        perf_page[i][DRAMREAD] = perf_setup(0x1d3, 0, i, i * 2, DRAMREAD);      // MEM_LOAD_L3_MISS_RETIRED.LOCAL_DRAM, mem_load_uops_l3_miss_retired.local_dram
+        perf_page[i][REMREAD] = perf_setup(0x4d3, 0, i, i * 2, REMREAD);     //  mem_load_uops_l3_miss_retired.remote_dram
     }
 
     start_pebs_thread();
