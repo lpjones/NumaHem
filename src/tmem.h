@@ -7,6 +7,7 @@
 
 #include "pebs.h"
 #include "uthash.h"
+#include "algorithm.h"
 
 // #define DRAM_SIZE (14 * (1024UL * 1024UL * 1024UL))
 // #define REMOTE_SIZE (6 * (1024UL * 1024UL * 1024UL))
@@ -44,6 +45,16 @@ enum {
     IN_REM
 };
 
+#define MAX_NEIGHBORS 8
+
+struct tmem_page;
+
+struct neighbor_page {
+    struct tmem_page *page;
+    double distance;
+    uint64_t time_diff;
+};
+
 struct tmem_page {
     uint64_t va;
     void* va_start;
@@ -51,10 +62,13 @@ struct tmem_page {
     uint64_t mig_up, mig_down;
     uint64_t accesses;
     uint64_t local_clock;
+    uint64_t cyc_accessed;
+    uint64_t ip;
     pthread_mutex_t page_lock;
 
     UT_hash_handle hh;
     struct tmem_page *next, *prev;
+    struct neighbor_page neighbors[MAX_NEIGHBORS];
     struct fifo_list *list;
 
     // Page states

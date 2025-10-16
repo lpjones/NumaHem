@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 import matplotlib.ticker as ticker
+import matplotlib.style as mplstyle
 import numpy as np
 import re
 import warnings
@@ -96,56 +97,185 @@ def cluster_mem(cycles, addrs, cpus, ips, events, clusters):
     return cluster_cycles, cluster_addrs, cluster_cpus, cluster_ips, cluster_events
 
 
+# def plot_clusters(cluster_cycles, cluster_addresses, cluster_cpus, cluster_ips, cluster_events, clusters, tot_addrs, config, color_by):
+#     event_colors = {
+#         0: ('DRAMREAD', 'tab:blue'),
+#         1: ('NVMREAD',  'tab:orange'),
+#         2: ('WRITE',    'tab:red'),
+#     }
+
+#     for idx in range(len(clusters)):
+#         cycles = np.array(cluster_cycles[idx])
+#         addrs = np.array(cluster_addresses[idx])
+#         events = np.array(cluster_events[idx])
+#         count = len(addrs)
+
+#         percent = 100 * count / tot_addrs
+#         cluster_start, cluster_end = clusters[idx]
+
+#         plt.figure(figsize=(10, 6))
+
+#         mplstyle.use('fast')
+
+#         if color_by == "event":
+#             for evt_type, (label, color) in event_colors.items():
+#                 mask = (events == evt_type)
+#                 if not np.any(mask):
+#                     continue
+#                 plt.scatter(cycles[mask], addrs[mask], s=3, color=color, label=label,alpha=0.5,edgecolors='none')
+#         elif color_by == "cpu":
+#             cpus = np.array(cluster_cpus[idx])
+#             unique_cpus = np.unique(cpus)
+#             cmap = cm.get_cmap('tab20', len(unique_cpus))
+#             cpu_to_color = {cpu: cmap(i) for i, cpu in enumerate(unique_cpus)}
+
+#             for cpu in unique_cpus:
+#                 mask = (cpus == cpu)
+#                 plt.scatter(cycles[mask], addrs[mask], s=1, color=cpu_to_color[cpu], label=f'CPU {cpu}',alpha=0.5,edgecolors='none')
+#         else:
+#             print(f"Unknown color_by option: {color_by}")
+#             return
+
+#         plt.xlabel("Cycle")
+#         plt.ylabel("Virtual Address")
+#         plt.title(f"Alloc Cluster {idx}: 0x{cluster_start:x} - 0x{cluster_end:x} ({count} accesses, {percent:.2f}%)")
+#         plt.gca().yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f'0x{int(x):x}'))
+#         plt.grid(True)
+#         plt.tight_layout()
+#         plt.legend(markerscale=3, fontsize=7, loc='upper right')
+
+#         basename = os.path.splitext(os.path.basename(config))[0]
+#         output_file = os.path.join(os.path.dirname(config), f"{basename}-{idx}-{color_by}.png")
+#         plt.savefig(output_file, dpi=300)
+#         plt.close()
+#         print(f"Saved cluster plot to {output_file}")
 def plot_clusters(cluster_cycles, cluster_addresses, cluster_cpus, cluster_ips, cluster_events, clusters, tot_addrs, config, color_by):
-    event_colors = {
-        0: ('DRAMREAD', 'tab:blue'),
-        1: ('NVMREAD',  'tab:orange'),
-        2: ('WRITE',    'tab:red'),
+    event_colors_rgb = {
+        0: ('DRAMREAD', mcolors.to_rgb('tab:blue')),
+        1: ('NVMREAD',  mcolors.to_rgb('tab:orange')),
+        2: ('WRITE',    mcolors.to_rgb('tab:red')),
     }
+
+    white = np.array([1.0, 1.0, 1.0])  # RGB for empty bins
 
     for idx in range(len(clusters)):
         cycles = np.array(cluster_cycles[idx])
         addrs = np.array(cluster_addresses[idx])
         events = np.array(cluster_events[idx])
+        cpus = np.array(cluster_cpus[idx])
         count = len(addrs)
-
-        percent = 100 * count / tot_addrs
         cluster_start, cluster_end = clusters[idx]
+        percent = 100 * count / tot_addrs
 
+        if count == 0:
+            continue
+
+        mplstyle.use('fast')
         plt.figure(figsize=(10, 6))
 
+        bins_x = 1000
+        bins_y = 1000
+
+        im = None
+        extent = None
+
         if color_by == "event":
-            for evt_type, (label, color) in event_colors.items():
+            Hs = []
+            bins = [bins_x, bins_y]
+            for evt_type in sorted(event_colors_rgb.keys()):
                 mask = (events == evt_type)
                 if not np.any(mask):
+                    Hs.append(np.zeros((bins_x, bins_y), dtype=np.float32))
                     continue
-                plt.scatter(cycles[mask], addrs[mask], s=2, color=color, label=label)
-        elif color_by == "cpu":
-            cpus = np.array(cluster_cpus[idx])
-            unique_cpus = np.unique(cpus)
-            cmap = cm.get_cmap('tab20', len(unique_cpus))
-            cpu_to_color = {cpu: cmap(i) for i, cpu in enumerate(unique_cpus)}
 
+                H, xedges, yedges = np.histogram2d(
+                    cycles[mask], addrs[mask],
+                    bins=bins
+                )
+                Hs.append(H)
+
+            stack = np.stack(Hs, axis=0)
+            total_counts = np.sum(stack, axis=0)
+            argmax_idx = np.argmax(stack, axis=0)
+
+            # Build color map from dominant event
+            sorted_keys = sorted(event_colors_rgb.keys())
+            colors_array = np.array([event_colors_rgb[k][1] for k in sorted_keys])
+            img = colors_array[argmax_idx].transpose(1, 0, 2)
+
+            # Mask zero bins (set to white)
+            zero_mask = (total_counts == 0).T
+            img[zero_mask] = white
+
+            extent = [xedges[0], xedges[-1], yedges[0], yedges[-1]]
+            im = plt.imshow(img, origin='lower', extent=extent, aspect='auto', interpolation='nearest')
+
+        elif color_by == "cpu":
+            unique_cpus = np.unique(cpus)
+            if unique_cpus.size == 0:
+                print(f"Cluster {idx} has no CPU samples (skipping).")
+                continue
+
+            # Choose color palette
+            if len(unique_cpus) <= 20:
+                cmap = cm.get_cmap('tab20', len(unique_cpus))
+                colors_list = [cmap(i)[:3] for i in range(len(unique_cpus))]
+            else:
+                cmap = cm.get_cmap('turbo', len(unique_cpus))
+                colors_list = [cmap(i)[:3] for i in range(len(unique_cpus))]
+
+            Hs = []
+            bins = [bins_x, bins_y]
             for cpu in unique_cpus:
                 mask = (cpus == cpu)
-                plt.scatter(cycles[mask], addrs[mask], s=2, color=cpu_to_color[cpu], label=f'CPU {cpu}')
+                if not np.any(mask):
+                    Hs.append(np.zeros((bins_x, bins_y), dtype=np.float32))
+                    continue
+                H, xedges, yedges = np.histogram2d(
+                    cycles[mask], addrs[mask],
+                    bins=bins
+                )
+                Hs.append(H)
+
+            stack = np.stack(Hs, axis=0)
+            total_counts = np.sum(stack, axis=0)
+            argmax_idx = np.argmax(stack, axis=0)
+
+            colors_array = np.array(colors_list)
+            img = colors_array[argmax_idx].transpose(1, 0, 2)
+
+            # Mask zero bins (set to white)
+            zero_mask = (total_counts == 0).T
+            img[zero_mask] = white
+
+            extent = [xedges[0], xedges[-1], yedges[0], yedges[-1]]
+            im = plt.imshow(img, origin='lower', extent=extent, aspect='auto', interpolation='nearest')
+
         else:
             print(f"Unknown color_by option: {color_by}")
             return
 
         plt.xlabel("Cycle")
         plt.ylabel("Virtual Address")
-        plt.title(f"Alloc Cluster {idx}: 0x{cluster_start:x} - 0x{cluster_end:x} ({count} accesses, {percent:.2f}%)")
-        plt.gca().yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f'0x{int(x):x}'))
-        plt.grid(True)
+        plt.title(f"Alloc Cluster {idx}: 0x{cluster_start:x} - 0x{cluster_end:x} "
+                  f"({count} accesses, {percent:.2f}%)")
+        plt.gca().yaxis.set_major_formatter(
+            ticker.FuncFormatter(lambda x, _: f'0x{int(x):x}')
+        )
+        plt.grid(False)
         plt.tight_layout()
-        plt.legend(markerscale=3, fontsize=7)
 
+        # No colorbar per your request
         basename = os.path.splitext(os.path.basename(config))[0]
-        output_file = os.path.join(os.path.dirname(config), f"{basename}-{idx}-{color_by}.png")
+        output_file = os.path.join(os.path.dirname(config),
+                                   f"{basename}-{idx}-{color_by}-heatmap.png")
         plt.savefig(output_file, dpi=300)
         plt.close()
-        print(f"Saved cluster plot to {output_file}")
+        print(f"Saved cluster heatmap to {output_file}")
+
+
+
+
 
 
 def print_clusters(clusters):

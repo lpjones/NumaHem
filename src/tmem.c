@@ -191,6 +191,8 @@ void* tmem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t of
         page->accesses = 0;
         page->migrating = false;
         page->local_clock = 0;
+        page->cyc_accessed = 0;
+        page->ip = 0;
 
         // page->prev = NULL;
         // page->next = NULL;
@@ -201,6 +203,8 @@ void* tmem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t of
         page->free = false;
         page->migrating = false;
         page->migrated = false;
+        memset(page->neighbors, 0, MAX_NEIGHBORS * sizeof(struct neighbor_page));
+
         assert(page->list == NULL);
         if (page->in_dram == IN_DRAM) {
             enqueue_fifo(&cold_list, page);
@@ -246,6 +250,8 @@ void* tmem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t of
         page->mig_down = 0;
         page->accesses = 0;
         page->local_clock = 0;
+        page->cyc_accessed = 0;
+        page->ip = 0;
 
         page->prev = NULL;
         page->next = NULL;
@@ -255,7 +261,7 @@ void* tmem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t of
         page->free = false;
         page->migrating = false;
         page->migrated = false;
-
+        memset(page->neighbors, 0, MAX_NEIGHBORS * sizeof(struct neighbor_page));
         pthread_mutex_init(&page->page_lock, NULL);
         page->list = NULL;
         if (page->in_dram == IN_DRAM) {

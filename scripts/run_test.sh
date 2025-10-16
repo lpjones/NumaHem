@@ -101,10 +101,11 @@ run_app() {
 # Alternatively, if you prefer to pass the whole command as a single string:
 # run_app "cgups" bash -c "${CGUPS_DIR}/gups64-rw 16 move 30 kill 60"
 #
+# run_app "mgups-2MB" "${MGUPS_DIR}/gups" 16000 2000 8 60 30 16
+#
 # Example calling multiple runs:
-# run_app "stream-256KB" "${STREAM_DIR}/stream" 4096 20
+# run_app "stream-2MB" "${STREAM_DIR}/stream" 4096 20
 run_app "cgups-2MB" "${CGUPS_DIR}/gups64-rw" 8 move 30 kill 60
-# run_app "mgups-256KB" "${MGUPS_DIR}/gups" 16000 2000 8 60 30 16
-# run_app "hgups-256KB" "${HGUPS_DIR}/gups-hotset-move" 8 100000000 34 8 32
-# run_app "bfs-256KB" "${GAPS_DIR}/bfs" -f "${GAPS_DIR}/twitter-2010.sg" -n 16 -r 0
-# run_app "resnet-256KB" ./venv/bin/python "${RESNET_DIR}/resnet_train.py"
+# run_app "hgups-2MB" "${HGUPS_DIR}/gups-hotset-move" 8 100000000 34 8 32
+# run_app "bfs-2MB" "${GAPS_DIR}/bfs" -f "${GAPS_DIR}/twitter-2010.sg" -n 16 -r 0
+# run_app "resnet-2MB" ./venv/bin/python "${RESNET_DIR}/resnet_train.py"

@@ -1,6 +1,7 @@
 #include "pebs.h"
 
-#define CHECK_KILLED(thread) if (!(num_loops++ & 0xF) && killed(thread)) return NULL;
+// #define CHECK_KILLED(thread) if (!(num_loops++ & 0xFFFF) && killed(thread)) return NULL;
+#define CHECK_KILLED(thread) 
 
 
 // Public variables
@@ -9,6 +10,7 @@
 // Private variables
 static int pfd[PEBS_NPROCS][NPBUFTYPES];
 static struct perf_event_mmap_page *perf_page[PEBS_NPROCS][NPBUFTYPES];
+static uint32_t no_samples[PEBS_NPROCS][NPBUFTYPES];
 static FILE* trace_fp = NULL;
 static FILE* tmem_trace_fp = NULL;
 static _Atomic bool kill_internal_threads[NUM_INTERNAL_THREADS];
@@ -146,13 +148,13 @@ void* pebs_stats_thread() {
         pebs_stats.unthrottles = 0;
 
         // hack to reset pebs when it bugs out and stop recording samples
-        for (int cpu_idx = 0; cpu_idx < PEBS_NPROCS; cpu_idx++) {
-            for (int type = 0; type < NPBUFTYPES; type++) {
-                ioctl(pfd[cpu_idx][type], PERF_EVENT_IOC_DISABLE);
-                ioctl(pfd[cpu_idx][type], PERF_EVENT_IOC_RESET);
-                ioctl(pfd[cpu_idx][type], PERF_EVENT_IOC_ENABLE);
-            }
-        }
+        // for (int cpu_idx = 0; cpu_idx < PEBS_NPROCS; cpu_idx++) {
+        //     for (int type = 0; type < NPBUFTYPES; type++) {
+        //         ioctl(pfd[cpu_idx][type], PERF_EVENT_IOC_DISABLE);
+        //         ioctl(pfd[cpu_idx][type], PERF_EVENT_IOC_RESET);
+        //         ioctl(pfd[cpu_idx][type], PERF_EVENT_IOC_ENABLE);
+        //     }
+        // }
         
 
 #ifdef DRAM_BUFFER
@@ -171,93 +173,15 @@ static void start_pebs_stats_thread() {
 }
 
 
-
-struct perf_sample read_perf_sample(uint32_t cpu_idx, uint8_t event) {
-    struct perf_event_mmap_page *p = perf_page[cpu_idx][event];
-    struct perf_sample rec = { .addr = 0 };
-    if (!p) return rec;
-
-    char *data = (char*)p + p->data_offset;
-    uint64_t data_size = p->data_size;
-    assert(((data_size - 1) & data_size) == 0); // ensure data_size is power of 2
-    if (data_size == 0) return rec;
-
-    // uint64_t head = atomic_load_explicit(&p->data_head, memory_order_acquire);
-    uint64_t head = __atomic_load_n(&p->data_head, __ATOMIC_ACQUIRE);
-    uint64_t tail = p->data_tail;
-    if (head == tail) return rec;
-
-    uint64_t avail = head - tail;
-    if (avail < sizeof(struct perf_event_header)) return rec;
-
-    uint64_t mask = data_size - 1;  // data_size is power of 2
-    uint64_t hdr_idx = tail & mask;
-
-    /* copy header (handles header split) */
-    struct perf_event_header *hdr_tmp;
-    if (hdr_idx + sizeof(hdr_tmp) <= data_size) {
-        hdr_tmp = (struct perf_event_header *)(data + hdr_idx);
-        // memcpy(&hdr_tmp, data + hdr_idx, sizeof(hdr_tmp));
-    } else {
-        pebs_stats.wrapped_headers++;
-        uint64_t first = data_size - hdr_idx;
-        memcpy(&hdr_tmp, data + hdr_idx, first);
-        memcpy((char*)&hdr_tmp + first, data, sizeof(hdr_tmp) - first);
-    }
-
-    if (hdr_tmp->size == 0) return rec;
-
-    if (avail < hdr_tmp->size) return rec; /* not fully published yet */
-
-    /* If the record body is contiguous (no wrap), handle it quickly.
-       Otherwise, drop it. */
-    uint64_t rec_idx = hdr_idx;
-    uint32_t rsize = hdr_tmp->size;
-    if (rec_idx + rsize <= data_size) {
-        /* contiguous: parse directly from buffer (no heap) */
-        struct perf_event_header *hdr = (struct perf_event_header *)(data + rec_idx);
-        switch (hdr->type) {
-            case PERF_RECORD_SAMPLE:
-                if (rsize - sizeof(struct perf_event_header) == sizeof(struct perf_sample)) {
-                    memcpy(&rec, data + rec_idx + sizeof(*hdr), sizeof(struct perf_sample));
-                }
-                break;
-            case PERF_RECORD_THROTTLE:
-                pebs_stats.throttles++;
-                break;
-            case PERF_RECORD_UNTHROTTLE:
-                pebs_stats.unthrottles++;
-                break;
-            default:
-                pebs_stats.unknown_samples++;
-                break;
-        }
-    } else {
-        pebs_stats.wrapped_records++;
-    }
-    tail += rsize;
-    // atomic_store_explicit(&p->data_tail, tail, memory_order_release);
-    __atomic_store_n(&p->data_tail, tail, __ATOMIC_RELEASE);
-
-    if (rec.addr != 0) {
-        struct pebs_rec p_rec = {
-            .va = rec.addr,
-            .ip = rec.ip,
-            .cyc = rec.time,
-            .cpu = cpu_idx,
-            .evt = event
-        };
-        fwrite(&p_rec, sizeof(struct pebs_rec), 1, trace_fp);
-    }
-    return rec;
-}
-
 // Could be munmapped at any time
 void make_hot_request(struct tmem_page* page) {
     if (page == NULL) return;
     // page could be munmapped here (but pages are never actually
     // unmapped so just check if it's in free state once locked)
-    pthread_mutex_lock(&page->page_lock);
+    if (pthread_mutex_trylock(&page->page_lock) != 0) { // Abort if lock taken to speed up pebs thread
+        return;
+    }
+    // pthread_mutex_lock(&page->page_lock);
     // check if unmapped
     if (page->free) {
         // printf("Page was free\n");
@@ -290,7 +214,9 @@ void make_cold_request(struct tmem_page* page) {
     if (page == NULL) return;
     // page could be munmapped here (but pages are never actually
     // unmapped so just check if it's in free state once locked)
-    pthread_mutex_lock(&page->page_lock);
+    if (pthread_mutex_trylock(&page->page_lock) != 0) { // Abort if lock taken to speed up pebs thread
+        return;
+    }
     // check if unmapped
     if (page->free) {
         pthread_mutex_unlock(&page->page_lock);
@@ -316,7 +242,9 @@ void make_cold_request(struct tmem_page* page) {
 void process_perf_buffer(int cpu_idx, int evt) {
     struct perf_event_mmap_page *p = perf_page[cpu_idx][evt];
     uint64_t num_loops = 0;
+
     while (p->data_head != p->data_tail || num_loops++ == 4096) {
+        no_samples[cpu_idx][evt] = 0;
         struct perf_sample rec = {.addr = 0};
         char *data = (char*)p + p->data_offset;
         uint64_t avail = p->data_head - p->data_tail;
@@ -356,7 +284,7 @@ void process_perf_buffer(int cpu_idx, int evt) {
             pebs_stats.wrapped_records++;
         }
         p->data_tail += hdr->size;
-
+ 
         /* Have PEBS Sample, Now check with tmem */
         // continue;
         if (rec.addr == 0) continue;
@@ -390,6 +318,12 @@ void process_perf_buffer(int cpu_idx, int evt) {
         else pebs_stats.rem_accesses++;
         page->accesses++;
 
+        uint64_t cur_cyc = rdtscp();
+        if (rec.time > page->cyc_accessed) {
+            page->cyc_accessed = rec.time;
+            page->ip = rec.ip;
+        }
+
         if (page->accesses >= HOT_THRESHOLD) {
             LOG_DEBUG("PEBS: Made hot: 0x%lx\n", page->va);
             make_hot_request(page);
@@ -406,7 +340,16 @@ void process_perf_buffer(int cpu_idx, int evt) {
         //     printf("cyc since last cool: %lu\n", cur_cyc - last_cyc_cool);
         //     last_cyc_cool = cur_cyc;
         // }
-        uint64_t cur_cyc = rdtscp();
+        algo_add_page(page);
+
+        struct tmem_page *pred_page = algo_predict_page(page);
+
+        if (pred_page != NULL) {
+            LOG_DEBUG("PRED: 0x%lx from 0x%lx\n", pred_page->va, page->va);
+            make_hot_request(pred_page);
+        }
+
+        
         if (cur_cyc - last_cyc_cool > CYC_COOL_THRESHOLD) {
             // global_clock++;
             // __atomic_fetch_add(&global_clock, 1, __ATOMIC_RELEASE);
@@ -415,7 +358,17 @@ void process_perf_buffer(int cpu_idx, int evt) {
         }
 
     }
+    no_samples[cpu_idx][evt]++;
     p->data_tail = p->data_head;
+
+    if (no_samples[cpu_idx][evt] > 65536) {
+        LOG_DEBUG("NPEBS: resetting PEBS buffer [%i][%i]\n", cpu_idx, evt);
+        ioctl(pfd[cpu_idx][evt], PERF_EVENT_IOC_DISABLE);
+        ioctl(pfd[cpu_idx][evt], PERF_EVENT_IOC_RESET);
+        ioctl(pfd[cpu_idx][evt], PERF_EVENT_IOC_ENABLE);
+        no_samples[cpu_idx][evt] = 0;
+    }
+    // Run clustering algorithm
 }
 
 
@@ -433,78 +386,18 @@ void* pebs_scan_thread() {
     // uint64_t samples_since_cool = 0;
     last_cyc_cool = rdtscp();
 
-    uint64_t num_loops = 0;
+    // uint64_t num_loops = 0;
 
     
     while (true) {
-        // CHECK_KILLED(PEBS_THREAD);
+        CHECK_KILLED(PEBS_THREAD);
 
         int pebs_start_cpu = 0;
         int num_cores = PEBS_NPROCS;
 
         for (int cpu_idx = pebs_start_cpu; cpu_idx < pebs_start_cpu + num_cores; cpu_idx++) {
             for(int evt = 0; evt < NPBUFTYPES; evt++) {
-                // process_perf_buffer(cpu_idx, evt);
-                struct perf_event_mmap_page *p = perf_page[cpu_idx][evt];
-                char *pbuf = (char *)p + p->data_offset;
-
-                __sync_synchronize();
-
-                if (p->data_head == p->data_tail) continue;
-
-                struct perf_event_header *ph = (struct perf_event_header *)(pbuf + (p->data_tail % p->data_size));
-                struct perf_sample *ps;
-                struct tmem_page *page;
-                switch (ph->type) {
-                    case PERF_RECORD_SAMPLE:
-                        ps = (struct perf_sample *)((char *)ph + sizeof(struct perf_event_header));
-                        assert(ps != NULL);
-                        if (ps->addr != 0) {
-                            __u64 pfn = ps->addr & PAGE_MASK;
-
-                            page = find_page(pfn);
-                            if (page != NULL) {
-                                if (page->va != 0) {
-                                    struct pebs_rec p_rec = {
-                                        .va = ps->addr,
-                                        .ip = ps->ip,
-                                        .cyc = ps->time,
-                                        .cpu = cpu_idx,
-                                        .evt = evt
-                                    };
-                                    fwrite(&p_rec, sizeof(struct pebs_rec), 1, trace_fp);
-                                    page->accesses++;
-                                    
-                                    if (page->accesses >= HOT_THRESHOLD) {
-                                        make_hot_request(page);
-                                    } else {
-                                        make_cold_request(page);
-                                    }
-
-                                    page->accesses >>= (global_clock - page->local_clock);
-                                    page->local_clock = global_clock;
-
-                                    uint64_t cur_cyc = rdtscp();
-                                    if (cur_cyc - last_cyc_cool > CYC_COOL_THRESHOLD) {
-                                        global_clock++;
-                                        last_cyc_cool = cur_cyc;
-                                    }
-                                }
-                            }
-                        }
-                        break;
-                    case PERF_RECORD_THROTTLE:
-                        pebs_stats.throttles++;
-                        break;
-                    case PERF_RECORD_UNTHROTTLE:
-                        pebs_stats.unthrottles++;
-                        break;
-                    default:
-                        pebs_stats.unknown_samples++;
-                        break;
-                    
-                }
-                p->data_tail += ph->size;
+                process_perf_buffer(cpu_idx, evt);
             }
         }
     }
@@ -534,7 +427,7 @@ void tmem_migrate_page(struct tmem_page *page, int node) {
 
 void *migrate_thread() {
     internal_call = true;
-    uint64_t num_loops = 0;
+    // uint64_t num_loops = 0;
 
     struct tmem_page *hot_page, *cold_page;
     uint64_t cold_bytes = 0;
@@ -666,6 +559,8 @@ void pebs_init(void) {
     for (int i = pebs_start_cpu; i < pebs_start_cpu + num_cores; i++) {
         perf_page[i][DRAMREAD] = perf_setup(0x1d3, 0, i, i * 2, DRAMREAD);      // MEM_LOAD_L3_MISS_RETIRED.LOCAL_DRAM, mem_load_uops_l3_miss_retired.local_dram
         perf_page[i][REMREAD] = perf_setup(0x4d3, 0, i, i * 2, REMREAD);     //  mem_load_uops_l3_miss_retired.remote_dram
+        no_samples[i][DRAMREAD] = 0;
+        no_samples[i][REMREAD] = 0;
     }
 
     start_pebs_thread();
