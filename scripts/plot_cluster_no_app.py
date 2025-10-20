@@ -173,8 +173,8 @@ def plot_clusters(cluster_cycles, cluster_addresses, cluster_cpus, cluster_ips, 
         mplstyle.use('fast')
         plt.figure(figsize=(10, 6))
 
-        bins_x = 1000
-        bins_y = 1000
+        bins_x = 500
+        bins_y = 500
 
         im = None
         extent = None

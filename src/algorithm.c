@@ -47,12 +47,18 @@ static void update_neighbors(struct tmem_page *old_page) {
         // Find empty spot or furthest distance neighbor O(MAX_NEIGHBORS)
         struct neighbor_page *furthest_neighbor = NULL;
         for (uint32_t j = 0; j < MAX_NEIGHBORS; j++) {
+            if (old_page->neighbors[j].page == cur_page) {
+                // already a neighbor, update and continue
+                furthest_neighbor = &old_page->neighbors[j];
+                furthest_neighbor->distance = 0;
+                break;
+            }
             if (old_page->neighbors[j].page == NULL) {  // empty spot
                 assert(old_page->neighbors[j].distance == 0);
                 assert(old_page->neighbors[j].time_diff == 0);
                 // printf("found empty spot\n");
                 furthest_neighbor = &old_page->neighbors[j];
-                break;
+                // break;
             }
 
             if (furthest_neighbor == NULL || old_page->neighbors[j].distance > furthest_neighbor->distance) {
@@ -105,15 +111,10 @@ void algo_add_page(struct tmem_page *page) {
     update_neighbors(old_page);
 
     page_history[old_idx] = page;
-
-    // Calc distances for history window and replace neighbors if better
-
-    // O(HISTORY_SIZE * MAX_NEIGHBORS)
     
 }
 
 struct tmem_page* algo_predict_page(struct tmem_page *page) {
-    return NULL;
     if (pebs_stats.throttles > pebs_stats.unthrottles) return NULL;
 
     // return closest neighbor if below threshold
@@ -128,7 +129,7 @@ struct tmem_page* algo_predict_page(struct tmem_page *page) {
     
     // uint64_t pebs_throttles = pebs_stats.throttles - pebs_stats.unthrottles;
     // printf("threshold normalizer: %lu\n", (500 * SAMPLE_PERIOD * (pebs_throttles)));
-    if (close_neighbor->distance < avg_dist / 10000) {
+    if (close_neighbor->distance < avg_dist / 5000) {
         return close_neighbor->page;
     }
 

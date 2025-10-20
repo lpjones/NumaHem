@@ -79,14 +79,12 @@ run_app() {
   ./venv/bin/python plot_cgups.py "${app_dir}/app.txt" "${app_dir}/throughput.png"
 
   ./venv/bin/python plot_stats.py -f "${app_dir}/stats.txt" -g1 "dram_free" "dram_used" "dram_size" "dram_cap" -o "${app_dir}/dram_stats"
-
   ./venv/bin/python plot_stats.py -f "${app_dir}/stats.txt" -g1 "dram_accesses" "rem_accesses" -o "${app_dir}/accesses"
-
+  ./venv/bin/python plot_stats.py -f "${app_dir}/stats.txt" -g1 "percent_dram" -o "${app_dir}/percent"
   ./venv/bin/python plot_stats.py -f "${app_dir}/stats.txt" -g1 "internal_mem_overhead" -g2 "mem_allocated" -o "${app_dir}/mem"
-
   ./venv/bin/python plot_stats.py -f "${app_dir}/stats.txt" -g1 "promotions" "demotions" -o "${app_dir}/migrations"
-
-  ./venv/bin/python plot_pebs_mig.py --log-file "${app_dir}/debuglog.txt" --out "${app_dir}/mig_latency"
+  ./venv/bin/python plot_stats.py -f "${app_dir}/stats.txt" -g1 "pebs_resets" -o "${app_dir}/resets"
+  # ./venv/bin/python plot_pebs_mig.py --log-file "${app_dir}/debuglog.txt" --out "${app_dir}/mig_latency"
 
   ./venv/bin/python plot_cluster_no_app.py "${app_dir}/tmem_trace.bin"
   ./venv/bin/python plot_cluster_no_app.py "${app_dir}/trace.bin"
@@ -105,7 +103,7 @@ run_app() {
 #
 # Example calling multiple runs:
 # run_app "stream-2MB" "${STREAM_DIR}/stream" 4096 20
-run_app "cgups-2MB" "${CGUPS_DIR}/gups64-rw" 8 move 30 kill 60
+# run_app "cgups-2MB" "${CGUPS_DIR}/gups64-rw" 8 move 30 kill 60
 # run_app "hgups-2MB" "${HGUPS_DIR}/gups-hotset-move" 8 100000000 34 8 32
 # run_app "bfs-2MB" "${GAPS_DIR}/bfs" -f "${GAPS_DIR}/twitter-2010.sg" -n 16 -r 0
-# run_app "resnet-2MB" ./venv/bin/python "${RESNET_DIR}/resnet_train.py"
+run_app "resnet-2MB-nohem" ./venv/bin/python "${RESNET_DIR}/resnet_train.py"

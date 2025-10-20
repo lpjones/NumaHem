@@ -6,5 +6,6 @@
 *.png
 *.bin
 *.d
+*.sg
 scripts/results/
 scripts/venv/

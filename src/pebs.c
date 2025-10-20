@@ -133,12 +133,13 @@ void* pebs_stats_thread() {
         LOG_STATS("\tdram_used: [%ld]\t dram_size: [%ld]\n", dram_used, dram_size);
 #endif
         double percent_dram = 100.0 * pebs_stats.dram_accesses / (pebs_stats.dram_accesses + pebs_stats.rem_accesses);
-        LOG_STATS("\tdram_accesses: [%ld]\trem_accesses: [%ld]\t percent dram: [%.2f]\n", 
+        LOG_STATS("\tdram_accesses: [%ld]\trem_accesses: [%ld]\t percent_dram: [%.2f]\n", 
             pebs_stats.dram_accesses, pebs_stats.rem_accesses, percent_dram);
         
         uint64_t migrations = pebs_stats.promotions + pebs_stats.demotions;
-        LOG_STATS("\tpromotions: [%lu]\tdemotions: [%lu]\tmigrations: [%lu]\n", 
-                pebs_stats.promotions, pebs_stats.demotions, migrations);
+        LOG_STATS("\tpromotions: [%lu]\tdemotions: [%lu]\tmigrations: [%lu]\tpebs_resets: [%lu]\n", 
+                pebs_stats.promotions, pebs_stats.demotions, migrations, pebs_stats.pebs_resets);
+
 
         pebs_stats.dram_accesses = 0;
         pebs_stats.rem_accesses = 0;
@@ -146,15 +147,7 @@ void* pebs_stats_thread() {
         pebs_stats.demotions = 0;
         pebs_stats.throttles = 0;
         pebs_stats.unthrottles = 0;
-
-        // hack to reset pebs when it bugs out and stop recording samples
-        // for (int cpu_idx = 0; cpu_idx < PEBS_NPROCS; cpu_idx++) {
-        //     for (int type = 0; type < NPBUFTYPES; type++) {
-        //         ioctl(pfd[cpu_idx][type], PERF_EVENT_IOC_DISABLE);
-        //         ioctl(pfd[cpu_idx][type], PERF_EVENT_IOC_RESET);
-        //         ioctl(pfd[cpu_idx][type], PERF_EVENT_IOC_ENABLE);
-        //     }
-        // }
+        pebs_stats.pebs_resets = 0;
         
 
 #ifdef DRAM_BUFFER
@@ -243,7 +236,7 @@ void process_perf_buffer(int cpu_idx, int evt) {
     struct perf_event_mmap_page *p = perf_page[cpu_idx][evt];
     uint64_t num_loops = 0;
 
-    while (p->data_head != p->data_tail || num_loops++ == 4096) {
+    while (p->data_head != p->data_tail || num_loops++ == 128) {
         no_samples[cpu_idx][evt] = 0;
         struct perf_sample rec = {.addr = 0};
         char *data = (char*)p + p->data_offset;
@@ -324,12 +317,12 @@ void process_perf_buffer(int cpu_idx, int evt) {
             page->ip = rec.ip;
         }
 
-        if (page->accesses >= HOT_THRESHOLD) {
-            LOG_DEBUG("PEBS: Made hot: 0x%lx\n", page->va);
-            make_hot_request(page);
-        } else {
-            make_cold_request(page);
-        }
+        // if (page->accesses >= HOT_THRESHOLD) {
+        //     LOG_DEBUG("PEBS: Made hot: 0x%lx\n", page->va);
+        //     make_hot_request(page);
+        // } else {
+        //     make_cold_request(page);
+        // }
 
         
 
@@ -362,7 +355,7 @@ void process_perf_buffer(int cpu_idx, int evt) {
     p->data_tail = p->data_head;
 
     if (no_samples[cpu_idx][evt] > 65536) {
-        LOG_DEBUG("NPEBS: resetting PEBS buffer [%i][%i]\n", cpu_idx, evt);
+        pebs_stats.pebs_resets++;
         ioctl(pfd[cpu_idx][evt], PERF_EVENT_IOC_DISABLE);
         ioctl(pfd[cpu_idx][evt], PERF_EVENT_IOC_RESET);
         ioctl(pfd[cpu_idx][evt], PERF_EVENT_IOC_ENABLE);

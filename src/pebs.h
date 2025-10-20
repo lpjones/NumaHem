@@ -88,6 +88,7 @@ struct pebs_stats {
     uint64_t wrapped_headers;
     uint64_t dram_accesses, rem_accesses;
     uint64_t promotions, demotions;
+    uint64_t pebs_resets;
 
 };
 

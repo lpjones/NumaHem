@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <sys/mman.h>
 
-#define BUFFER 64   // add 48MB to free size since it usually eats more than it should
+#define BUFFER 64   // add 64MB to free size since it usually eats more than it should
 
 int main(int argc, char** argv) {
     if (argc != 3) {
