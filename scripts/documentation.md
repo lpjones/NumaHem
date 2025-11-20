@@ -1,3 +1,5 @@
+Current best parameters: resnet-stats1-clust1-hem0-his8-pred16-down0.0001-up0.01-neigh8 -> 4.2 im/sec resnet
+
 
 Lists:
 There are 3 lists in tmem:
