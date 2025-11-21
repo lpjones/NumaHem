@@ -17,7 +17,9 @@
 
 // #define PAGE_SIZE 4096UL              // 4KB
 // #define PAGE_SIZE (1 * (1024UL * 1024UL))
+#ifndef PAGE_SIZE
 #define PAGE_SIZE (2 * (1024UL * 1024UL)) // 2MB
+#endif
 // #define PAGE_SIZE (256 * 1024UL) // 256KB
 #define BASE_PAGE_SIZE 4096UL
 
@@ -45,7 +47,9 @@ enum {
     IN_REM
 };
 
-#define MAX_NEIGHBORS 8
+#ifndef MAX_NEIGHBORS
+#define MAX_NEIGHBORS 4
+#endif
 
 struct tmem_page;
 
@@ -64,6 +68,7 @@ struct tmem_page {
     uint64_t local_clock;
     uint64_t cyc_accessed;
     uint64_t ip;
+    uint64_t mig_start;
     pthread_mutex_t page_lock;
 
     UT_hash_handle hh;
@@ -84,5 +89,6 @@ void* tmem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t of
 int tmem_munmap(void *addr, size_t length);
 void tmem_cleanup();
 struct tmem_page* find_page(uint64_t va);
+struct tmem_page* find_page_no_lock(uint64_t va);
 
 #endif

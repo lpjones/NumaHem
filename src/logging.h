@@ -9,6 +9,7 @@
 extern FILE* stats_fp;
 extern FILE* debug_fp;
 extern FILE* time_fp;
+extern FILE* pred_fp;
 extern struct timespec log_start_time;
 
 // #define LOG_DEBUG(...) { fprintf(debug_fp, __VA_ARGS__); fflush(debug_fp); }

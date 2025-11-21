@@ -29,12 +29,21 @@
 #include "spsc-ring.h"
 #include "fifo.h"
 
+
+#ifndef NO_SAMPLE_RESET_TIME
+    #define NO_SAMPLE_RESET_TIME 50000000
+#endif
+
 #ifndef PEBS_SCAN_CPU
-    #define PEBS_SCAN_CPU 30
+    #define PEBS_SCAN_CPU 2
 #endif
 
 #ifndef PEBS_STATS_CPU
-    #define PEBS_STATS_CPU 2
+    #define PEBS_STATS_CPU 4
+#endif
+
+#ifndef MIGRATE_CPU
+    #define MIGRATE_CPU 6
 #endif
 
 #ifndef SAMPLE_PERIOD
@@ -47,10 +56,6 @@
 
 #ifndef PEBS_NPROCS
     #define PEBS_NPROCS 16
-#endif
-
-#ifndef PEBS_STATS
-    #define PEBS_STATS 1
 #endif
 
 #ifndef HOT_THRESHOLD
@@ -68,7 +73,7 @@
 enum {
     PEBS_THREAD,
     PEBS_STATS_THREAD,
-    MIGRATION_THREAD,
+    MIGRATE_THREAD,
     NUM_INTERNAL_THREADS
 };
 
@@ -78,6 +83,14 @@ enum pbuftype {
   REMREAD = 1,  
   NPBUFTYPES
 };
+
+struct pebs_rec {
+  uint64_t cyc;
+  uint64_t va;
+  uint64_t ip;
+  uint32_t cpu;
+  uint8_t  evt;
+} __attribute__((packed));
 
 struct pebs_stats {
     uint64_t throttles, unthrottles;
@@ -89,6 +102,7 @@ struct pebs_stats {
     uint64_t dram_accesses, rem_accesses;
     uint64_t promotions, demotions;
     uint64_t pebs_resets;
+    uint64_t non_tracked_mem;
 
 };
 

@@ -20,21 +20,25 @@ static int mmap_filter(void *addr, size_t length, int prot, int flags, int fd, o
 
     if ((flags & MAP_ANONYMOUS) != MAP_ANONYMOUS) {
       LOG_DEBUG("MMAP: not anonymous: mmap(%p, %lu, %d, %d, %d, %lu)\n", addr, length, prot, flags, fd, offset);
+      pebs_stats.non_tracked_mem += length;
       return 1;
     }
 
-    if ((prot & PROT_EXEC) == PROT_EXEC) {
-      LOG_DEBUG("MMAP: PROT_EXEC: mmap(%p, %lu, %d, %d, %d, %lu)\n", addr, length, prot, flags, fd, offset);
-      return 1;
-    }
+    // if ((prot & PROT_EXEC) == PROT_EXEC) {
+    //   LOG_DEBUG("MMAP: PROT_EXEC: mmap(%p, %lu, %d, %d, %d, %lu)\n", addr, length, prot, flags, fd, offset);
+    //   pebs_stats.non_tracked_mem += length;
+    //   return 1;
+    // }
 
-    if (prot == PROT_NONE) {
-      LOG_DEBUG("MMAP: PROT_NONE: mmap(%p, %lu, %d, %d, %d, %lu)\n", addr, length, prot, flags, fd, offset);
-      return 1;
-    }
+    // if (prot == PROT_NONE) {
+    //   LOG_DEBUG("MMAP: PROT_NONE: mmap(%p, %lu, %d, %d, %d, %lu)\n", addr, length, prot, flags, fd, offset);
+    //   pebs_stats.non_tracked_mem += length;
+    //   return 1;
+    // }
 
     if (main_pid != getpid()) {
       LOG_DEBUG("MMAP: not main_pid: mmap(%p, %lu, %d, %d, %d, %lu)\n", addr, length, prot, flags, fd, offset);
+      pebs_stats.non_tracked_mem += length;
       return 1;
     }
 

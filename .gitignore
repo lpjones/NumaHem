@@ -9,3 +9,4 @@
 *.sg
 scripts/results/
 scripts/venv/
+workloads/YCSB

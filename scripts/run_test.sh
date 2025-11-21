@@ -234,16 +234,16 @@ grid_search() {
 echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
 echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
 
-run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
-  his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
-  max_neighbors=8 bfs_algo=0 dfs_algo=1
-run_app "resnet-PAGR-155" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
+# run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
+#   his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
+#   max_neighbors=8 bfs_algo=0 dfs_algo=1
+# run_app "resnet-PAGR-cold" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
 
-run_make cluster_algo=0 hem_algo=1 dfs_algo=0
-run_app "resnet-hem-155" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
+# run_make cluster_algo=0 hem_algo=1 dfs_algo=0
+# run_app "resnet-hem-155" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
 
-run_make cluster_algo=0 hem_algo=0 dfs_algo=0
-run_app "resnet-no-155" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
+# run_make cluster_algo=0 hem_algo=0 dfs_algo=0
+# run_app "resnet-no-155" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
 
 
 
@@ -280,7 +280,7 @@ run_app "resnet-no-155" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_tr
 # run_app "cgups-hem" "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
 
 # run_make cluster_algo=1 hem_algo=0 dfs_algo=1
-# run_app "cgups-PAGR" "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
+# run_app "cgups-PAGR-cold" "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
 
 # run_make cluster_algo=1 hem_algo=1 dfs_algo=1
 # run_app "cgups-both" "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
@@ -306,10 +306,10 @@ run_app "resnet-no-155" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_tr
 # echo always | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
 
 
-# run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
-#   his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
-#   max_neighbors=8 dfs_algo=1
-# run_app "bfs-PAGR-thp" "${GAPBS_DIR}" "./bfs" -f "twitter-2010.sg" -n 64 -r 0
+run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
+  his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
+  max_neighbors=8 dfs_algo=1
+run_app "bfs-PAGR-cold" "${GAPBS_DIR}" "./bfs" -f "twitter-2010.sg" -n 64 -r 0
 
 # Regular
 # echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled

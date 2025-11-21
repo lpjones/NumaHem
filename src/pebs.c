@@ -10,7 +10,7 @@
 // Private variables
 static int pfd[PEBS_NPROCS][NPBUFTYPES];
 static struct perf_event_mmap_page *perf_page[PEBS_NPROCS][NPBUFTYPES];
-static uint32_t no_samples[PEBS_NPROCS][NPBUFTYPES];
+static uint64_t no_samples[PEBS_NPROCS][NPBUFTYPES];
 static FILE* trace_fp = NULL;
 static FILE* tmem_trace_fp = NULL;
 static _Atomic bool kill_internal_threads[NUM_INTERNAL_THREADS];
@@ -30,13 +30,7 @@ struct perf_sample {
 // __u64 data_src;         /* if PERF_SAMPLE_DATA_SRC */
 };
 
-struct pebs_rec {
-  uint64_t cyc;
-  uint64_t va;
-  uint64_t ip;
-  uint32_t cpu;
-  uint8_t  evt;
-} __attribute__((packed));
+
 
 struct pebs_stats pebs_stats = {0};
 
@@ -113,12 +107,13 @@ static struct perf_event_mmap_page* perf_setup(__u64 config, __u64 config1, uint
 void* pebs_stats_thread() {
     internal_call = true;
 
-    // cpu_set_t cpuset;
-    // CPU_ZERO(&cpuset);
-    // CPU_SET(PEBS_STATS_CPU, &cpuset);
-    // int s = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
-    // assert(s == 0);
-    // return NULL;
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(PEBS_STATS_CPU, &cpuset);
+    int s = pthread_setaffinity_np(internal_threads[PEBS_STATS_THREAD], sizeof(cpu_set_t), &cpuset);
+    assert(s == 0);
+
+
     while (!killed(PEBS_STATS_THREAD)) {
         sleep(1);
         LOG_STATS("internal_mem_overhead: [%lu]\tmem_allocated: [%lu]\tthrottles/unthrottles: [%lu/%lu]\tunknown_samples: [%lu]\n", 
@@ -130,15 +125,18 @@ void* pebs_stats_thread() {
         LOG_STATS("\tdram_free: [%ld]\tdram_used: [%ld]\t dram_size: [%ld]\tdram_cap: [%ld]\n", dram_free, dram_used, dram_size, dram_free - DRAM_BUFFER);
 #endif
 #ifdef DRAM_SIZE
-        LOG_STATS("\tdram_used: [%ld]\t dram_size: [%ld]\n", dram_used, dram_size);
+        LOG_STATS("\tdram_used: [%ld]\t dram_size: [%ld]\tnon_tracked_mem: [%lu]\n", dram_used, dram_size, pebs_stats.non_tracked_mem);
 #endif
         double percent_dram = 100.0 * pebs_stats.dram_accesses / (pebs_stats.dram_accesses + pebs_stats.rem_accesses);
         LOG_STATS("\tdram_accesses: [%ld]\trem_accesses: [%ld]\t percent_dram: [%.2f]\n", 
             pebs_stats.dram_accesses, pebs_stats.rem_accesses, percent_dram);
         
         uint64_t migrations = pebs_stats.promotions + pebs_stats.demotions;
-        LOG_STATS("\tpromotions: [%lu]\tdemotions: [%lu]\tmigrations: [%lu]\tpebs_resets: [%lu]\n", 
-                pebs_stats.promotions, pebs_stats.demotions, migrations, pebs_stats.pebs_resets);
+        LOG_STATS("\tpromotions: [%lu]\tdemotions: [%lu]\tmigrations: [%lu]\tpebs_resets: [%lu]\tmig_move_time: [%.2f]\tmig_queue_time: [%.2f]\n", 
+                pebs_stats.promotions, pebs_stats.demotions, migrations, pebs_stats.pebs_resets, mig_move_time, mig_queue_time);
+
+        LOG_STATS("\tthreshold: [%.2f]\tavg_dist: [%.2f]\tdiff: [%.2f]\n", bot_dist, avg_dist, avg_dist - bot_dist);
+
 
 
         pebs_stats.dram_accesses = 0;
@@ -195,6 +193,7 @@ void make_hot_request(struct tmem_page* page) {
         }
         assert(page->list == NULL);
         enqueue_fifo(&hot_list, page);
+        page->mig_start = rdtscp();
 
     }
     // printf("page is either already in hot list or is in remote memory\n");
@@ -236,8 +235,8 @@ void process_perf_buffer(int cpu_idx, int evt) {
     struct perf_event_mmap_page *p = perf_page[cpu_idx][evt];
     uint64_t num_loops = 0;
 
-    while (p->data_head != p->data_tail || num_loops++ == 128) {
-        no_samples[cpu_idx][evt] = 0;
+    while (p->data_head != p->data_tail && num_loops++ != 128) {
+        
         struct perf_sample rec = {.addr = 0};
         char *data = (char*)p + p->data_offset;
         uint64_t avail = p->data_head - p->data_tail;
@@ -283,11 +282,11 @@ void process_perf_buffer(int cpu_idx, int evt) {
         if (rec.addr == 0) continue;
 
         uint64_t addr_aligned = rec.addr & PAGE_MASK;
-        struct tmem_page *page = find_page(addr_aligned);
+        struct tmem_page *page = find_page_no_lock(addr_aligned);
 
         // Try 4KB aligned page if not 2MB aligned page
         if (page == NULL)
-            page = find_page(rec.addr & BASE_PAGE_MASK);
+            page = find_page_no_lock(rec.addr & BASE_PAGE_MASK);
         if (page == NULL) continue;
 
         struct pebs_rec p_rec = {
@@ -317,12 +316,14 @@ void process_perf_buffer(int cpu_idx, int evt) {
             page->ip = rec.ip;
         }
 
-        // if (page->accesses >= HOT_THRESHOLD) {
-        //     LOG_DEBUG("PEBS: Made hot: 0x%lx\n", page->va);
-        //     make_hot_request(page);
-        // } else {
-        //     make_cold_request(page);
-        // }
+#if HEM_ALGO == 1
+        if (page->accesses >= HOT_THRESHOLD) {
+            LOG_DEBUG("PEBS: Made hot: 0x%lx\n", page->va);
+            make_hot_request(page);
+        } else {
+            make_cold_request(page);
+        }
+#endif
 
         
 
@@ -333,14 +334,28 @@ void process_perf_buffer(int cpu_idx, int evt) {
         //     printf("cyc since last cool: %lu\n", cur_cyc - last_cyc_cool);
         //     last_cyc_cool = cur_cyc;
         // }
+#if CLUSTER_ALGO == 1
         algo_add_page(page);
 
-        struct tmem_page *pred_page = algo_predict_page(page);
+        // struct tmem_page *pred_page = algo_predict_page(page);
 
-        if (pred_page != NULL) {
-            LOG_DEBUG("PRED: 0x%lx from 0x%lx\n", pred_page->va, page->va);
-            make_hot_request(pred_page);
+        // if (pred_page != NULL) {
+        //     LOG_DEBUG("PRED: 0x%lx from 0x%lx\n", pred_page->va, page->va);
+        //     make_hot_request(pred_page);
+        // }
+        
+        struct tmem_page *pred_pages[MAX_NEIGHBORS * MAX_PRED_DEPTH];
+        uint32_t idx = 0;
+        algo_predict_pages(page, pred_pages, &idx);
+
+        for (uint32_t i = 0; i < idx; i++) {
+            LOG_DEBUG("PRED: 0x%lx from 0x%lx\n", pred_pages[i]->va, page->va);
+            make_hot_request(pred_pages[i]);
         }
+        if (page->accesses < HOT_THRESHOLD) {
+            make_cold_request(page);
+        }
+#endif
 
         
         if (cur_cyc - last_cyc_cool > CYC_COOL_THRESHOLD) {
@@ -349,17 +364,19 @@ void process_perf_buffer(int cpu_idx, int evt) {
             global_clock++;
             last_cyc_cool = cur_cyc;
         }
+        no_samples[cpu_idx][evt] = cur_cyc;
 
     }
     no_samples[cpu_idx][evt]++;
     p->data_tail = p->data_head;
 
-    if (no_samples[cpu_idx][evt] > 65536) {
+    uint64_t cur_cyc = rdtscp();
+    if (cur_cyc > no_samples[cpu_idx][evt] + NO_SAMPLE_RESET_TIME) {
         pebs_stats.pebs_resets++;
         ioctl(pfd[cpu_idx][evt], PERF_EVENT_IOC_DISABLE);
         ioctl(pfd[cpu_idx][evt], PERF_EVENT_IOC_RESET);
         ioctl(pfd[cpu_idx][evt], PERF_EVENT_IOC_ENABLE);
-        no_samples[cpu_idx][evt] = 0;
+        no_samples[cpu_idx][evt] = cur_cyc;
     }
     // Run clustering algorithm
 }
@@ -420,13 +437,19 @@ void tmem_migrate_page(struct tmem_page *page, int node) {
 
 void *migrate_thread() {
     internal_call = true;
+
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(MIGRATE_CPU, &cpuset);
+    int s = pthread_setaffinity_np(internal_threads[MIGRATE_THREAD], sizeof(cpu_set_t), &cpuset);
+    assert(s == 0);
     // uint64_t num_loops = 0;
 
     struct tmem_page *hot_page, *cold_page;
     uint64_t cold_bytes = 0;
 
     while (true) {
-        CHECK_KILLED(MIGRATION_THREAD);
+        // CHECK_KILLED(MIGRATE_THREAD);
 
         // Don't do any migrations until hot page comes in
         hot_page = dequeue_fifo(&hot_list);
@@ -440,6 +463,10 @@ void *migrate_thread() {
         }
         
         LOG_DEBUG("MIG: got hot page: 0x%lx\n", hot_page->va);
+
+        uint64_t mig_queue_cyc = rdtscp();
+        uint64_t mig_queue_diff = mig_queue_cyc - hot_page->mig_start;
+        mig_queue_time = DEC_MIG_TIME * mig_queue_diff + (1.0 - DEC_MIG_TIME) * mig_queue_time;
 
         // have a valid hot page. Now get cold pages
         // disable dram mmap temporarily
@@ -457,6 +484,8 @@ void *migrate_thread() {
             __atomic_fetch_add(&dram_used, hot_page->size, __ATOMIC_RELEASE);
             atomic_store_explicit(&dram_lock, false, memory_order_release);
             LOG_DEBUG("MIG: Finished migration: 0x%lx\n", hot_page->va);
+            uint64_t mig_move_diff = rdtscp() - mig_queue_cyc;
+            mig_move_time = DEC_MIG_TIME * mig_move_diff + (1.0 - DEC_MIG_TIME) * mig_move_time;
 
             pthread_mutex_unlock(&hot_page->page_lock);
             continue;
@@ -508,6 +537,9 @@ void *migrate_thread() {
         atomic_store_explicit(&dram_lock, false, memory_order_release);
         LOG_DEBUG("MIG: Finished migration: 0x%lx\n", hot_page->va);
 
+        uint64_t mig_move_diff = rdtscp() - mig_queue_cyc;
+        mig_move_time = DEC_MIG_TIME * mig_move_diff + (1.0 - DEC_MIG_TIME) * mig_move_time;
+
         pthread_mutex_unlock(&hot_page->page_lock);
     }
 }
@@ -518,7 +550,7 @@ void start_pebs_thread() {
 }
 
 void start_migrate_thread() {
-    int s = pthread_create(&internal_threads[MIGRATION_THREAD], NULL, migrate_thread, NULL);
+    int s = pthread_create(&internal_threads[MIGRATE_THREAD], NULL, migrate_thread, NULL);
     assert(s == 0);
 }
 

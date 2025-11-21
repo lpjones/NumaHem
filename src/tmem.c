@@ -47,6 +47,16 @@ void remove_page(struct tmem_page *page)
   pthread_mutex_unlock(&pages_lock);
 }
 
+struct tmem_page* find_page_no_lock(uint64_t va) {
+    struct tmem_page *page;
+    if (pthread_mutex_trylock(&pages_lock) != 0) {
+        return NULL;    // Abort early so no waiting
+    }
+    HASH_FIND(hh, pages, &va, sizeof(uint64_t), page);
+    pthread_mutex_unlock(&pages_lock);
+    return page;
+}
+
 struct tmem_page* find_page(uint64_t va)
 {
   struct tmem_page *page;
@@ -71,6 +81,10 @@ void tmem_init() {
 #endif
 #endif
 
+    // Puts non-tracked mmaps into remote memory so it doesn't exceed
+    // the set DRAM capacity
+    numa_set_preferred(DRAM_NODE);
+
     // LOG_DEBUG("DRAM size: %lu, REMOTE size: %lu\n", DRAM_SIZE, REMOTE_SIZE);
 
     LOG_DEBUG("finished tmem_init\n");
@@ -92,8 +106,11 @@ void tmem_init() {
 #define PAGE_ROUND_UP(x) (((x) + (PAGE_SIZE)-1) & (~((PAGE_SIZE)-1)))
 #define PAGE_ROUND_DOWN(x) ((x) & (~((PAGE_SIZE)-1)))
 
+#define PAGE_ROUND_UP_BASE(x) (((x) + (BASE_PAGE_SIZE)-1) & (~((BASE_PAGE_SIZE)-1)))
+
 
 void* tmem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset) {
+    length = PAGE_ROUND_UP_BASE(length);
     internal_call = true;
 
     unsigned long dram_nodemask = 1UL << DRAM_NODE;

@@ -3,7 +3,7 @@ CFLAGS = -O3 -msse4  -march=native -funroll-loops -fopt-info-vec-optimized
 # CFLAGS = -g -O0 -msse4  -march=native -funroll-loops -fopt-info-vec-optimized
 CFLAGSOPT = -O3 -msse4 -g -march=native
 
-all: gups64-rw
+all: gups64-rw gups-n1
 # all: gups-r gups-rw gups-2to1 gups-3to1 gups64-rw gups64-r gups64-2to1 gups64-3to1 gups256-rw gups1024-rw
 
 # gups-r:
@@ -20,6 +20,9 @@ all: gups64-rw
 
 gups64-rw:
 	$(CC) -DCHUNK_SIZE=64 -DCL_PER_CHUNK=1 -DWORKLOAD_READWRITE $(CFLAGS) gups-opt.c -o gups64-rw -lpthread -lnuma
+
+gups-n1:
+	$(CC) -DCHUNK_SIZE=64 -DCL_PER_CHUNK=1 -DWORKLOAD_READWRITE $(CFLAGS) gups-opt-node1.c -o gups-n1 -lpthread -lnuma
 
 # gups64-r:
 # 	$(CC) -DCHUNK_SIZE=64 -DCL_PER_CHUNK=1 -DWORKLOAD_READ $(CFLAGS) gups-opt.c -o gups64-r -lpthread -lnuma
