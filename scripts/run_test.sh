@@ -103,6 +103,7 @@ run_app() {
   ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stats.py" -f "${app_dir}/stats.txt" -g1 "promotions" "demotions" -g2 "threshold" -o "${app_dir}/migrations"
   ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stats.py" -f "${app_dir}/stats.txt" -g1 "pebs_resets" -o "${app_dir}/resets"
   ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stats.py" -f "${app_dir}/stats.txt" -g1 "mig_move_time" -g2 "mig_queue_time" -o "${app_dir}/mig_time"
+  ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stats.py" -f "${app_dir}/stats.txt" -g1 "cold_pages" "hot_pages" -o "${app_dir}/pages"
   # ./venv/bin/python plot_pebs_mig.py --log-file "${app_dir}/debuglog.txt" --out "${app_dir}/mig_latency"
 
   ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_cluster_no_app.py" "${app_dir}/tmem_trace.bin" -fast
@@ -171,6 +172,77 @@ grid_search() {
   done
 }
 
+run_pagr_hem() {
+  local app=$1
+  echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
+  echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
+
+  local app_dir="${result_dir}"
+
+  # # Resnet  
+  # run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
+  #   his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
+  #   max_neighbors=8 bfs_algo=0 dfs_algo=1
+  # run_app "resnet-PAGR-${app}" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
+
+  # run_make cluster_algo=0 hem_algo=1 dfs_algo=0
+  # run_app "resnet-hem-${app}" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
+
+  # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_resnet.py" "${app_dir}/resnet-PAGR-${app}/app.txt" \
+  #   "${app_dir}/resnet-hem-${app}/app.txt" -o "${app_dir}/resnet-${app}.png" --labels "PAGR" "HeMem"
+
+  # CGUPS
+  run_make cluster_algo=0 hem_algo=1 dfs_algo=0
+  run_app "cgups-hem-${app}" "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
+
+  run_make cluster_algo=1 hem_algo=0 dfs_algo=1
+  run_app "cgups-PAGR-${app}" "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
+
+  ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_cgups_mul.py" "${app_dir}/cgups-PAGR-${app}/app.txt" \
+    "${app_dir}/cgups-hem-${app}/app.txt" "${app_dir}/cgups-${app}.png" --labels "PAGR" "HeMem"
+
+  # # BFS
+  # run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
+  #   his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
+  #   max_neighbors=8 dfs_algo=1
+  # run_app "bfs-PAGR-${app}" "${GAPBS_DIR}" "./bfs" -f "twitter-2010.sg" -n 64 -r 0
+
+  # run_make cluster_algo=0 hem_algo=1 dfs_algo=0
+  # run_app "bfs-hem-${app}" "${GAPBS_DIR}" "./bfs" -f "twitter-2010.sg" -n 64 -r 0
+
+  # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_gapbs_mul.py" "${app_dir}/bfs-PAGR-${app}/app.txt" \
+  #   "${app_dir}/bfs-hem-${app}/app.txt" "${app_dir}/bfs-${app}.png" --labels "PAGR" "HeMem" \
+  #   --title "BFS Trial Times"
+
+  # # Stream
+  # run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
+  #   his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
+  #   max_neighbors=8 dfs_algo=1
+  # run_app "stream-PAGR-${app}" "${STREAM_DIR}" "./stream" 2048 50
+
+  # run_make cluster_algo=0 hem_algo=1
+  # run_app "stream-hem-${app}" "${STREAM_DIR}" "./stream" 2048 50
+
+  # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stream_mul.py" "${app_dir}/stream-PAGR-${app}/app.txt" \
+  #   "${app_dir}/stream-hem-${app}/app.txt" "${app_dir}/stream-${app}.png" --labels "PAGR" "HeMem"
+
+  # # BC
+  # run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
+  #   his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
+  #   max_neighbors=8 dfs_algo=1
+  # run_app "bc-PAGR-${app}" "${GAPBS_DIR}" "./bc" -f "twitter-2010.sg" -n 64 -r 0
+
+  # run_make cluster_algo=0 hem_algo=1 dfs_algo=0
+  # run_app "bc-hem-${app}" "${GAPBS_DIR}" "./bc" -f "twitter-2010.sg" -n 64 -r 0
+
+  # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_gapbs_mul.py" "${app_dir}/bc-PAGR-${app}/app.txt" \
+  #   "${app_dir}/bc-hem-${app}/app.txt" "${app_dir}/bc-${app}.png" --labels "PAGR" "HeMem" --title \
+  #   "BC Trial Times"
+
+}
+
+run_pagr_hem lru
+
 # grid_search
 
 
@@ -231,16 +303,16 @@ grid_search() {
 # echo always | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
 
 # Regular
-echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
-echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
+# echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
+# echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
 
 # run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
 #   his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
 #   max_neighbors=8 bfs_algo=0 dfs_algo=1
-# run_app "resnet-PAGR-cold" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
+# run_app "resnet-PAGR" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
 
 # run_make cluster_algo=0 hem_algo=1 dfs_algo=0
-# run_app "resnet-hem-155" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
+# run_app "resnet-hem" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
 
 # run_make cluster_algo=0 hem_algo=0 dfs_algo=0
 # run_app "resnet-no-155" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
@@ -279,8 +351,10 @@ echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
 # run_make cluster_algo=0 hem_algo=1 dfs_algo=0
 # run_app "cgups-hem" "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
 
-# run_make cluster_algo=1 hem_algo=0 dfs_algo=1
-# run_app "cgups-PAGR-cold" "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
+# run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
+#   his_size=8 pred_depth=16 dec_down=0.00005 dec_up=0.1 \
+#   max_neighbors=8 dfs_algo=1
+# run_app "cgups-PAGR" "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
 
 # run_make cluster_algo=1 hem_algo=1 dfs_algo=1
 # run_app "cgups-both" "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
@@ -306,10 +380,10 @@ echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
 # echo always | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
 
 
-run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
-  his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
-  max_neighbors=8 dfs_algo=1
-run_app "bfs-PAGR-cold" "${GAPBS_DIR}" "./bfs" -f "twitter-2010.sg" -n 64 -r 0
+# run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
+#   his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
+#   max_neighbors=8 dfs_algo=1
+# run_app "bfs-PAGR-cold" "${GAPBS_DIR}" "./bfs" -f "twitter-2010.sg" -n 64 -r 0
 
 # Regular
 # echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
@@ -331,13 +405,11 @@ run_app "bfs-PAGR-cold" "${GAPBS_DIR}" "./bfs" -f "twitter-2010.sg" -n 64 -r 0
 # run_app "bfs-both" "${GAPBS_DIR}" "bfs" -f "twitter-2010.sg" -n 64 -r 0
 
 # #stream
-# echo always | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
-# echo always | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
 
 # run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
 #   his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
 #   max_neighbors=8 dfs_algo=1
-# run_app "stream-thp" "${STREAM_DIR}" "./stream" 2048 50
+# run_app "stream-PAGR" "${STREAM_DIR}" "./stream" 2048 50
 
 # echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
 # echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
@@ -345,7 +417,7 @@ run_app "bfs-PAGR-cold" "${GAPBS_DIR}" "./bfs" -f "twitter-2010.sg" -n 64 -r 0
 # run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
 #   his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
 #   max_neighbors=8 dfs_algo=1
-# run_app "stream-reg" "${STREAM_DIR}" "./stream" 2048 50
+# run_app "stream-PAGR" "${STREAM_DIR}" "./stream" 2048 50
 
 # run_make cluster_algo=0 hem_algo=0
 # run_app "stream-no" "${STREAM_DIR}" "./stream" 2048 50
@@ -358,3 +430,15 @@ run_app "bfs-PAGR-cold" "${GAPBS_DIR}" "./bfs" -f "twitter-2010.sg" -n 64 -r 0
 
 # run_make cluster_algo=1 hem_algo=1
 # run_app "stream-both" "${STREAM_DIR}" "./stream" 2048 50
+
+# bc
+# run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
+#   his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
+#   max_neighbors=8 dfs_algo=1
+# run_app "bc-PAGR" "${GAPBS_DIR}" "./bc" -f "twitter-2010.sg" -n 64 -r 0
+
+# run_make cluster_algo=0 hem_algo=0 dfs_algo=0
+# run_app "bc-no" "${GAPBS_DIR}" "./bc" -f "twitter-2010.sg" -n 64 -r 0
+
+# run_make cluster_algo=0 hem_algo=1 dfs_algo=0
+# run_app "bc-hem" "${GAPBS_DIR}" "./bc" -f "twitter-2010.sg" -n 64 -r 0

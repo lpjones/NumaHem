@@ -28,7 +28,8 @@ trap cleanup INT TERM EXIT
 
 for ((i=1; i<=N; i++)); do
     echo "Starting memhog instance $i..."
-    numactl -N1 -m1 -- memhog -r100000000 100M >/dev/null 2>&1 &
+    numactl -N1 -m1 -- memhog -H -r100000000 100M >/dev/null 2>&1 &
+    # numactl -N1 -m1 -- ./rchase 1 2000 1000000000000000 >/dev/null 2>&1 &
     PIDS+=($!)
 done
 

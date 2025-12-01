@@ -11,6 +11,7 @@ def parse_args():
     p.add_argument("inputs", nargs="+", help="One or more input text files (each must contain 'bfs' in the filename).")
     p.add_argument("output", help="Output image filename (e.g. out.png, out.pdf).")
     p.add_argument("--labels", nargs='+', default=None, help="labels for graph lines")
+    p.add_argument("--title", help="title")
 
     return p.parse_args()
 
@@ -31,7 +32,7 @@ def parse_trial_times(file_path):
     return vals
 
 
-def plot_multiple(datasets, labels, outpath):
+def plot_multiple(datasets, labels, outpath, title):
     import matplotlib.pyplot as plt
 
     plt.figure(figsize=(10, 4))
@@ -45,7 +46,7 @@ def plot_multiple(datasets, labels, outpath):
 
     plt.xlabel("Trial")
     plt.ylabel("Trial Time (s)")
-    plt.title("BFS Trial Times")
+    plt.title(title)
     plt.grid(True)
     plt.legend(fontsize="small")
     plt.tight_layout()
@@ -65,12 +66,10 @@ def main():
 
     inputs = args.inputs
     outpath = args.output
+    title = args.title
 
     # Validate each input file
     for path in inputs:
-        if "bfs" not in path.lower():
-            print(f"Input filename '{path}' does not contain 'bfs' — aborting.", file=sys.stderr)
-            return 3
         if not os.path.isfile(path):
             print(f"Input file '{path}' not found.", file=sys.stderr)
             return 4
@@ -87,7 +86,7 @@ def main():
         if args.labels == None:
             labels.append(os.path.splitext(os.path.basename(path))[0])
 
-    return plot_multiple(datasets, labels, outpath)
+    return plot_multiple(datasets, labels, outpath, title)
 
 
 if __name__ == "__main__":

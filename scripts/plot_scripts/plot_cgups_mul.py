@@ -25,7 +25,7 @@ def parse_args():
     p.add_argument("--labels", nargs='+', default=None, help="labels for graph lines")
     p.add_argument("--xlabel", default="Seconds", help="Label for the x-axis.")
     p.add_argument("--ylabel", default="Throughput (bytes)", help="Label for the y-axis.")
-    p.add_argument("--title", default="Colloid GUPS Throughput", help="Plot title.")
+    p.add_argument("--title", default="GUPS Throughput", help="Plot title.")
     p.add_argument("--no-grid", action="store_true", help="Disable grid on the plot.")
     return p.parse_args()
 

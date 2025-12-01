@@ -51,7 +51,7 @@ def parse_epoch_images(filepath: str) -> List[Tuple[int, float]]:
     # Return epochs sorted ascending
     return sorted(values.items(), key=lambda kv: kv[0])
 
-def plot_files(filepaths: List[str], outpath: str, title: str = "Images/sec per Epoch"):
+def plot_files(filepaths: List[str], outpath: str, title: str = "ResNet50 Throughput"):
     import matplotlib.pyplot as plt
 
     if not filepaths:
@@ -116,7 +116,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Plot images/sec per epoch from one or more app logs.")
     parser.add_argument("files", nargs="+", help="One or more app output files to parse.")
     parser.add_argument("-o", "--output", required=True, help="Output image filename (e.g. out.png).")
-    parser.add_argument("--title", default="Images/sec per Epoch", help="Plot title.")
+    parser.add_argument("--title", default="ResNet50 Throughput", help="Plot title.")
     parser.add_argument("--labels", nargs='+', default=None, help="labels for graph lines")
     args = parser.parse_args(argv)
 
