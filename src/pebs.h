@@ -103,7 +103,6 @@ struct pebs_stats {
     uint64_t promotions, demotions;
     uint64_t pebs_resets;
     uint64_t non_tracked_mem;
-
 };
 
 extern struct pebs_stats pebs_stats;

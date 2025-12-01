@@ -233,13 +233,14 @@ void algo_predict_pages(struct tmem_page *page, struct tmem_page **pred_pages, u
     // LOG_DEBUG("Threshold: %.2e, avg_dist: %.2e\n", bot_dist, avg_dist);
     double threshold = bot_dist;
 
-    uint32_t max_preds = MAX_PRED_DEPTH * MAX_NEIGHBORS;
 
     //BFS
 #if BFS_ALGO == 1
 #ifndef BFS_QUEUE_MAX
 #define BFS_QUEUE_MAX 256
 #endif
+    uint32_t max_preds = MAX_PRED_DEPTH * MAX_NEIGHBORS;
+
 
     struct bfs_node {
         struct tmem_page *page;

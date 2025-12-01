@@ -137,6 +137,8 @@ void* pebs_stats_thread() {
 
         LOG_STATS("\tthreshold: [%.2f]\tavg_dist: [%.2f]\tdiff: [%.2f]\n", bot_dist, avg_dist, avg_dist - bot_dist);
 
+        LOG_STATS("\tcold_pages: [%lu]\thot_pages: [%lu]\n", cold_list.numentries, hot_list.numentries);
+
 
 
         pebs_stats.dram_accesses = 0;
@@ -163,7 +165,6 @@ static void start_pebs_stats_thread() {
     assert(s == 0);
 }
 
-
 // Could be munmapped at any time
 void make_hot_request(struct tmem_page* page) {
     if (page == NULL) return;
@@ -184,17 +185,26 @@ void make_hot_request(struct tmem_page* page) {
     // add to hot list if:
     // page is not already in hot list and in remote mem
     if (page->list != &hot_list && page->in_dram == IN_REM) {
+        // page should not be hot
+        // not be cold since all cold pages are in dram
+        // not be free 
         // either was in remote mem or just got dequeued
         // from cold list in migrate thread
         // page->list == &cold_list and in Remote
-        if (page->list != NULL) {
-            assert(page->list == &cold_list);
-            page_list_remove_page(&cold_list, page);
-        }
+        // if (page->list != NULL) {
+        //     assert(page->list == &cold_list);
+        //     page_list_remove_page(&cold_list, page);
+        // }
         assert(page->list == NULL);
         enqueue_fifo(&hot_list, page);
         page->mig_start = rdtscp();
 
+    }
+    // If already in dram update LRU cold list
+    else if (page->in_dram == IN_DRAM) {
+        assert(page->list == &cold_list);
+        page_list_remove_page(&cold_list, page);
+        enqueue_fifo(&cold_list, page);
     }
     // printf("page is either already in hot list or is in remote memory\n");
     
@@ -207,6 +217,7 @@ void make_cold_request(struct tmem_page* page) {
     // page could be munmapped here (but pages are never actually
     // unmapped so just check if it's in free state once locked)
     if (pthread_mutex_trylock(&page->page_lock) != 0) { // Abort if lock taken to speed up pebs thread
+        LOG_DEBUG("Failed lock: 0x%lx\n", page->va);
         return;
     }
     // check if unmapped
@@ -214,16 +225,17 @@ void make_cold_request(struct tmem_page* page) {
         pthread_mutex_unlock(&page->page_lock);
         return;
     }
-    page->hot = false;
-    // move to cold list if:
-    // page is not already in cold list and
-    // page is in dram
-    if (page->list != &cold_list && page->in_dram == IN_DRAM) {
-        // remove from hot list
-        if (page->list != NULL) {
-            assert(page->list == &hot_list);
-            page_list_remove_page(&hot_list, page);
+    // page->hot = false;
+
+    // Even if page is already in cold list
+    // move to back of cold list for LRU
+    if (page->in_dram == IN_DRAM) {
+        // assert(page->list != NULL);
+        assert(page->list != &free_list);
+        if (page->list != NULL) {   // page could be dequeued from migrate thread
+            page_list_remove_page(page->list, page);
         }
+
         assert(page->list == NULL);
         enqueue_fifo(&cold_list, page);
     }
@@ -316,14 +328,19 @@ void process_perf_buffer(int cpu_idx, int evt) {
             page->ip = rec.ip;
         }
 
+        // LRU cold list
+        // if sample is cold move to end of cold queue
+        // Everything in DRAM is cold
+
 #if HEM_ALGO == 1
         if (page->accesses >= HOT_THRESHOLD) {
             LOG_DEBUG("PEBS: Made hot: 0x%lx\n", page->va);
             make_hot_request(page);
         } else {
+            page->hot = false;
             make_cold_request(page);
         }
-#endif
+#endif 
 
         
 
@@ -344,17 +361,26 @@ void process_perf_buffer(int cpu_idx, int evt) {
         //     make_hot_request(pred_page);
         // }
         
-        struct tmem_page *pred_pages[MAX_NEIGHBORS * MAX_PRED_DEPTH];
-        uint32_t idx = 0;
-        algo_predict_pages(page, pred_pages, &idx);
+        if (cold_list.numentries != 0) {
+            struct tmem_page *pred_pages[MAX_NEIGHBORS * MAX_PRED_DEPTH];
+            uint32_t idx = 0;
+            algo_predict_pages(page, pred_pages, &idx);
 
-        for (uint32_t i = 0; i < idx; i++) {
-            LOG_DEBUG("PRED: 0x%lx from 0x%lx\n", pred_pages[i]->va, page->va);
-            make_hot_request(pred_pages[i]);
+            for (uint32_t i = 0; i < idx; i++) {
+                LOG_DEBUG("PRED: 0x%lx from 0x%lx\n", pred_pages[i]->va, page->va);
+                make_hot_request(pred_pages[i]);
+            }
+            
         }
-        if (page->accesses < HOT_THRESHOLD) {
-            make_cold_request(page);
-        }
+        // LRU based cold list
+        // everything in DRAM is in cold list
+        // with oldest page at front of queue
+        make_cold_request(page);
+
+        // if (page->accesses < HOT_THRESHOLD) {
+        //     make_cold_request(page);
+        // }
+
 #endif
 
         
@@ -425,8 +451,9 @@ void tmem_migrate_page(struct tmem_page *page, int node) {
         if (node == DRAM_NODE) {
             // was migrated to dram
             page->in_dram = IN_DRAM;
-            page->hot = true;
-            enqueue_fifo(&hot_list, page);
+            page->hot = false;
+            enqueue_fifo(&cold_list, page);
+            // enqueue_fifo(&hot_list, page);
         } else {
             page->in_dram = IN_REM;
             page->hot = false;
@@ -494,10 +521,9 @@ void *migrate_thread() {
         cold_bytes = 0;
         // Not enough space in dram, demote cold pages until enough space
         while (bytes_free + cold_bytes < hot_page->size) {
-            cold_page = dequeue_fifo(&cold_list);   // grabs cold page lock
+            cold_page = dequeue_fifo(&cold_list);
             if (cold_page == NULL) {
                 // cold list is empty, abort
-                // requeue hot page (kind of bad idea but oh well)
                 // enqueue_fifo(&hot_list, hot_page);
                 pthread_mutex_unlock(&hot_page->page_lock);
 
@@ -510,11 +536,14 @@ void *migrate_thread() {
             }
             assert(cold_page != NULL);
             pthread_mutex_lock(&cold_page->page_lock);
-            if (cold_page->list != NULL || cold_page->in_dram == IN_REM || cold_page->hot) {
+            if (cold_page->list != NULL) {
+                // page got yoinked
                 pthread_mutex_unlock(&cold_page->page_lock);
                 continue;
             }
-            assert(cold_page->in_dram == IN_DRAM && !cold_page->hot);
+            assert(cold_page->in_dram == IN_DRAM);
+            // assert(!cold_page->hot);
+            assert(cold_page->list == NULL);
 
             // tmem_migrate_pages(&cold_page, 1, REM_NODE);
             tmem_migrate_page(cold_page, REM_NODE);
