@@ -2,6 +2,12 @@ import sys
 import os
 import matplotlib.pyplot as plt
 import re
+from pathlib import Path
+
+# Get the directory of the current script
+script_dir = Path(__file__).resolve().parent
+
+plt.style.use(os.path.join(script_dir, 'ieee.mplstyle'))
 
 stats_path = './results'
 

@@ -3,6 +3,13 @@ import sys
 import os
 import argparse
 import re
+import matplotlib.pyplot as plt
+from pathlib import Path
+
+# Get the directory of the current script
+script_dir = Path(__file__).resolve().parent
+
+plt.style.use(os.path.join(script_dir, 'ieee.mplstyle'))
 
 def parse_args():
     p = argparse.ArgumentParser(

@@ -5,6 +5,12 @@ import os
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import shutil
+from pathlib import Path
+
+# Get the directory of the current script
+script_dir = Path(__file__).resolve().parent
+
+plt.style.use(os.path.join(script_dir, 'ieee.mplstyle'))
 
 parser = argparse.ArgumentParser()
 parser.add_argument("config", help="Name of config file (binary file)")

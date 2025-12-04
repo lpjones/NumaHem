@@ -10,6 +10,7 @@ LIBS    := -lsyscall_intercept -lnuma -lpthread -ldl
 pebs_stats ?= 1
 cluster_algo ?= 0
 hem_algo ?= 0
+lru_algo ?= 0
 bfs_algo ?= 0
 dfs_algo ?= 0
 his_size ?= 16
@@ -18,6 +19,7 @@ dec_down ?= 0.0001
 dec_up ?= 0.01
 max_neighbors ?= 8
 page_size ?= 2097152
+dram_size ?= 2147483648
 
 CFLAGS += -DPEBS_STATS=$(pebs_stats)
 CFLAGS += -DCLUSTER_ALGO=$(cluster_algo)
@@ -31,6 +33,8 @@ CFLAGS += -DDEC_DOWN=$(dec_down)
 CFLAGS += -DDEC_UP=$(dec_up)
 CFLAGS += -DMAX_NEIGHBORS=$(max_neighbors)
 CFLAGS += -DPAGE_SIZE=$(page_size)
+CFLAGS += -DDRAM_SIZE=$(dram_size)
+CFLAGS += -DLRU_ALGO=$(lru_algo)
 
 # Sources / Objects
 SRCS := interpose.c tmem.c pebs.c timer.c logging.c spsc-ring.c fifo.c algorithm.c

@@ -4,6 +4,8 @@ FILE* debug_fp = NULL;
 FILE* stats_fp = NULL;
 FILE* time_fp = NULL;
 FILE* pred_fp = NULL;
+FILE* mig_fp = NULL;
+FILE* cold_fp = NULL;
 struct timespec log_start_time;
 
 void init_log_files() {
@@ -20,6 +22,12 @@ void init_log_files() {
 
     pred_fp = fopen("preds.bin", "wb");
     assert(pred_fp != NULL);
+
+    mig_fp = fopen("mig.bin", "wb");
+    assert(mig_fp != NULL);
+
+    cold_fp = fopen("cold.bin", "wb");
+    assert(cold_fp != NULL);
 
     internal_call = false;
 

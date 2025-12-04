@@ -3,6 +3,13 @@ import os
 import re
 import statistics
 from collections import defaultdict, OrderedDict
+import matplotlib.pyplot as plt
+from pathlib import Path
+
+# Get the directory of the current script
+script_dir = Path(__file__).resolve().parent
+
+plt.style.use(os.path.join(script_dir, 'ieee.mplstyle'))
 
 results_dir = "./results/grid_runs"
 IMGS_RE = re.compile(r'Epoch\s+\d+\s*:\s*([0-9]*\.?[0-9]+)\s*images/sec', re.IGNORECASE)

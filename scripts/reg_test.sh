@@ -13,12 +13,12 @@ RESNET_DIR="../../scripts"
 result_dir="./results"
 
 # run once to pin/disable CPUs if you have such a helper
-if [ -x ./disable_cpus.sh ]; then
-  echo "Running disable_cpus.sh"
-  ./disable_cpus.sh
-else
-  echo "Warning: disable_cpus.sh not found or not executable; skipping."
-fi
+# if [ -x ./disable_cpus.sh ]; then
+#   echo "Running disable_cpus.sh"
+#   ./disable_cpus.sh
+# else
+#   echo "Warning: disable_cpus.sh not found or not executable; skipping."
+# fi
 
 # Ensure result_dir exists
 mkdir -p "${result_dir}"
@@ -48,6 +48,8 @@ run_app() {
   local app_dir="${result_dir}/${config}"
   rm -rf "${app_dir}"
   mkdir -p "${app_dir}"
+  echo always | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
+  echo always | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
 
   echo
   echo "=== Running config='${config}' cmd='${cmd[*]}' ==="
@@ -69,7 +71,7 @@ run_app() {
 
   # Plots
 
-  ./venv/bin/python plot_cgups.py "${app_dir}/app.txt" "${app_dir}/throughput.png"
+  ./venv/bin/python plot_scripts/plot_cgups_mul.py "${app_dir}/app.txt" "${app_dir}/throughput.png"
 
   return ${rc}
 }
@@ -82,7 +84,7 @@ run_app() {
 # run_app "cgups" bash -c "${CGUPS_DIR}/gups64-rw 16 move 30 kill 60"
 #
 # Example calling multiple runs:
-run_app "cgups-reg-2GB" "${CGUPS_DIR}/gups64-rw" 8 move 150 kill 300
+run_app "cgups-alldram" "${CGUPS_DIR}/gups64-rw" 8 move 30 kill 60
 # run_app "mgups-reg" "${MGUPS_DIR}/gups" 16000 2000 8 60 30 16
 # run_app "hgups-reg" "${HGUPS_DIR}/gups-hotset-move" 8 100000000 34 8 30
 # run_app "bfs-reg" "${GAPS_DIR}/bfs" -f "${GAPS_DIR}/twitter-2010.sg" -n 8 -r 0

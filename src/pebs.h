@@ -70,6 +70,10 @@
     #define CYC_COOL_THRESHOLD 10000000
 #endif
 
+#ifndef LRU_ALGO
+    #define LRU_ALGO 0
+#endif
+
 enum {
     PEBS_THREAD,
     PEBS_STATS_THREAD,

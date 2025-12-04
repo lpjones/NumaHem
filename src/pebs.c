@@ -11,7 +11,6 @@
 static int pfd[PEBS_NPROCS][NPBUFTYPES];
 static struct perf_event_mmap_page *perf_page[PEBS_NPROCS][NPBUFTYPES];
 static uint64_t no_samples[PEBS_NPROCS][NPBUFTYPES];
-static FILE* trace_fp = NULL;
 static FILE* tmem_trace_fp = NULL;
 static _Atomic bool kill_internal_threads[NUM_INTERNAL_THREADS];
 static pthread_t internal_threads[NUM_INTERNAL_THREADS];
@@ -191,21 +190,25 @@ void make_hot_request(struct tmem_page* page) {
         // either was in remote mem or just got dequeued
         // from cold list in migrate thread
         // page->list == &cold_list and in Remote
-        // if (page->list != NULL) {
-        //     assert(page->list == &cold_list);
-        //     page_list_remove_page(&cold_list, page);
-        // }
+#if LRU_ALGO == 0
+        if (page->list != NULL) {
+            assert(page->list == &cold_list);
+            page_list_remove_page(&cold_list, page);
+        }
+#endif
         assert(page->list == NULL);
         enqueue_fifo(&hot_list, page);
         page->mig_start = rdtscp();
 
     }
+#if LRU_ALGO == 1
     // If already in dram update LRU cold list
     else if (page->in_dram == IN_DRAM) {
         assert(page->list == &cold_list);
         page_list_remove_page(&cold_list, page);
         enqueue_fifo(&cold_list, page);
     }
+#endif
     // printf("page is either already in hot list or is in remote memory\n");
     
     pthread_mutex_unlock(&page->page_lock);
@@ -225,8 +228,21 @@ void make_cold_request(struct tmem_page* page) {
         pthread_mutex_unlock(&page->page_lock);
         return;
     }
-    // page->hot = false;
-
+    page->hot = false;
+#if LRU_ALGO == 0
+    // move to cold list if:
+    // page is not already in cold list and
+    // page is in dram
+    if (page->list != &cold_list && page->in_dram == IN_DRAM) {
+        // remove from hot list
+        if (page->list != NULL) {
+            assert(page->list == &hot_list);
+            page_list_remove_page(&hot_list, page);
+        }
+        assert(page->list == NULL);
+        enqueue_fifo(&cold_list, page);
+    }
+#else
     // Even if page is already in cold list
     // move to back of cold list for LRU
     if (page->in_dram == IN_DRAM) {
@@ -239,7 +255,7 @@ void make_cold_request(struct tmem_page* page) {
         assert(page->list == NULL);
         enqueue_fifo(&cold_list, page);
     }
-    
+#endif
     pthread_mutex_unlock(&page->page_lock);
 }
 
@@ -302,9 +318,9 @@ void process_perf_buffer(int cpu_idx, int evt) {
         if (page == NULL) continue;
 
         struct pebs_rec p_rec = {
-            .va = rec.addr,
+            .va = addr_aligned,
             .ip = rec.ip,
-            .cyc = rec.time,
+            .cyc = rdtscp(),
             .cpu = cpu_idx,
             .evt = evt
         };
@@ -334,10 +350,17 @@ void process_perf_buffer(int cpu_idx, int evt) {
 
 #if HEM_ALGO == 1
         if (page->accesses >= HOT_THRESHOLD) {
-            LOG_DEBUG("PEBS: Made hot: 0x%lx\n", page->va);
+            // LOG_DEBUG("PEBS: Made hot: 0x%lx\n", page->va);
+            struct pebs_rec p_rec = {
+                .va = page->va,
+                .ip = 0,
+                .cyc = rdtscp(),
+                .cpu = 0,
+                .evt = 0
+            };
+            fwrite(&p_rec, sizeof(struct pebs_rec), 1, pred_fp);
             make_hot_request(page);
         } else {
-            page->hot = false;
             make_cold_request(page);
         }
 #endif 
@@ -353,13 +376,6 @@ void process_perf_buffer(int cpu_idx, int evt) {
         // }
 #if CLUSTER_ALGO == 1
         algo_add_page(page);
-
-        // struct tmem_page *pred_page = algo_predict_page(page);
-
-        // if (pred_page != NULL) {
-        //     LOG_DEBUG("PRED: 0x%lx from 0x%lx\n", pred_page->va, page->va);
-        //     make_hot_request(pred_page);
-        // }
         
         if (cold_list.numentries != 0) {
             struct tmem_page *pred_pages[MAX_NEIGHBORS * MAX_PRED_DEPTH];
@@ -367,20 +383,26 @@ void process_perf_buffer(int cpu_idx, int evt) {
             algo_predict_pages(page, pred_pages, &idx);
 
             for (uint32_t i = 0; i < idx; i++) {
-                LOG_DEBUG("PRED: 0x%lx from 0x%lx\n", pred_pages[i]->va, page->va);
+                // LOG_DEBUG("PRED: 0x%lx from 0x%lx\n", pred_pages[i]->va, page->va);
+                struct pebs_rec p_rec = {
+                    .va = pred_pages[i]->va,
+                    .ip = 0,
+                    .cyc = rdtscp(),
+                    .cpu = 0,
+                    .evt = 0
+                };
+                fwrite(&p_rec, sizeof(struct pebs_rec), 1, pred_fp);
                 make_hot_request(pred_pages[i]);
             }
             
         }
+        
+#if LRU_ALGO == 1
         // LRU based cold list
         // everything in DRAM is in cold list
         // with oldest page at front of queue
         make_cold_request(page);
-
-        // if (page->accesses < HOT_THRESHOLD) {
-        //     make_cold_request(page);
-        // }
-
+#endif
 #endif
 
         
@@ -451,10 +473,30 @@ void tmem_migrate_page(struct tmem_page *page, int node) {
         if (node == DRAM_NODE) {
             // was migrated to dram
             page->in_dram = IN_DRAM;
+#if LRU_ALGO == 1
             page->hot = false;
             enqueue_fifo(&cold_list, page);
-            // enqueue_fifo(&hot_list, page);
+#else
+            page->hot = true;
+            enqueue_fifo(&hot_list, page);
+#endif
+            struct pebs_rec p_rec = {
+                .va = page->va,
+                .ip = 0,
+                .cyc = rdtscp(),
+                .cpu = 0,
+                .evt = 0
+            };
+            fwrite(&p_rec, sizeof(struct pebs_rec), 1, mig_fp);
         } else {
+            struct pebs_rec p_rec = {
+                .va = page->va,
+                .ip = 0,
+                .cyc = rdtscp(),
+                .cpu = 0,
+                .evt = 0
+            };
+            fwrite(&p_rec, sizeof(struct pebs_rec), 1, cold_fp);
             page->in_dram = IN_REM;
             page->hot = false;
         }
@@ -536,7 +578,11 @@ void *migrate_thread() {
             }
             assert(cold_page != NULL);
             pthread_mutex_lock(&cold_page->page_lock);
+#if LRU_ALGO == 1
             if (cold_page->list != NULL) {
+#else
+            if (cold_page->list != NULL || cold_page->in_dram == IN_REM || cold_page->hot) {
+#endif
                 // page got yoinked
                 pthread_mutex_unlock(&cold_page->page_lock);
                 continue;
@@ -600,12 +646,6 @@ void pebs_init(void) {
         perror("tmem_trace file fopen");
     }
     assert(tmem_trace_fp != NULL);
-
-    trace_fp = fopen("trace.bin", "wb");
-    if (trace_fp == NULL) {
-        perror("trace file fopen");
-    }
-    assert(trace_fp != NULL);
 
     int pebs_start_cpu = 0;
     int num_cores = PEBS_NPROCS;

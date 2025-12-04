@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
@@ -9,12 +10,28 @@ import numpy as np
 import warnings
 import struct
 import argparse
+from pathlib import Path
+from datetime import datetime
+
+# Get the directory of the current script
+script_dir = Path(__file__).resolve().parent
+
+# Shift axes to start at 0
+try:
+    x_vals = x_vals - np.min(x_vals)
+    y_vals = y_vals - np.min(y_vals)
+except:
+    pass
+plt.style.use(os.path.join(script_dir, 'ieee.mplstyle'))
 
 parser = argparse.ArgumentParser()
 parser.add_argument("config", help="Name of config file (binary stats file)")
+parser.add_argument("--output", help="Output image filename (e.g. out.png, out.pdf).")
 parser.add_argument("-c", choices=["event", "cpu"], default="event", help="Color clusters by 'event' or 'cpu'")
 parser.add_argument("-fast", action="store_true", help="Use heatmap mode (faster to render large datasets). Without this flag the script uses the scatter version.")
 parser.add_argument("--title", default="", help="Plot title.")
+parser.add_argument('--start-percent', help='Start percent of file to read (0-100)', type=float, default=0.0)
+parser.add_argument('--end-percent', help='End percent of file to read (0-100)', type=float, default=100.0)
 
 args = parser.parse_args()
 
@@ -27,8 +44,39 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 # Parameters
 gap_threshold_gb = 2
 min_accesses_per_cluster = 500
-start_percent = 0
-end_percent = 100
+start_percent = args.start_percent
+end_percent = args.end_percent
+GB = 1024 ** 3
+
+
+def parse_log(file_path):
+    ts_re = re.compile(r'\[(?P<ts>[0-9.]+)\]')
+    with open(file_path, 'r') as f:
+        first_line = f.readline()
+        m = ts_re.search(first_line)
+        if not m:
+            raise ValueError("No timestamp found in first line")
+        first_ts = float(m.group("ts"))
+
+        f.seek(0, 2)
+        pos = f.tell()
+        while pos > 0:
+            pos -= 1
+            f.seek(pos)
+            if f.read(1) == '\n':
+                break
+        last_line = f.readline().strip()
+        if last_line == "":
+            f.seek(0)
+            lines = [l.strip() for l in f.readlines() if l.strip()]
+            last_line = lines[-1]
+
+        m = ts_re.search(last_line)
+        if not m:
+            raise ValueError("No timestamp in last line")
+        last_ts = float(m.group("ts"))
+
+    return first_ts, last_ts
 
 
 def parse_mem_np(stats_file, start_percent, end_percent):
@@ -86,7 +134,7 @@ def infer_clusters_np(addresses, gap_threshold_gb):
     if uniq.size == 0:
         return []
 
-    gap_threshold = np.uint64(gap_threshold_gb * 1024 ** 3)
+    gap_threshold = np.uint64(gap_threshold_gb * GB)
 
     # compute diffs between successive unique addresses
     diffs = np.diff(uniq)
@@ -144,19 +192,19 @@ def cluster_mem_np(cycles, addrs, cpus, ips, events, clusters):
     return cluster_cycles_list, cluster_addrs_list, cluster_cpus_list, cluster_ips_list, cluster_events_list
 
 
-def plot_clusters(cluster_cycles, cluster_addresses, cluster_cpus, cluster_ips, cluster_events, clusters, tot_addrs, config, color_by, use_heatmap=False):
+def plot_clusters(cluster_cycles, cluster_addresses, cluster_cpus, cluster_ips, cluster_events, clusters, tot_addrs, config, color_by, use_heatmap=False, start_ts=None, end_ts=None):
+    global args
     event_colors = {
-        0: ('DRAMREAD', 'tab:blue'),
-        1: ('REMREAD',  'tab:orange'),
+        0: ('Local Access', 'tab:blue'),
+        1: ('Remote Access',  'tab:orange'),
     }
 
     out_dir = os.path.dirname(config) or '.'
     basename = os.path.splitext(os.path.basename(config))[0]
 
     for idx in range(len(clusters)):
-        cycles = np.asarray(cluster_cycles[idx])
-        cycles = cycles - cycles[0]
-        addrs = np.asarray(cluster_addresses[idx])
+        cycles = np.asarray(cluster_cycles[idx]).astype(np.float64)
+        addrs = np.asarray(cluster_addresses[idx]).astype(np.float64)
         events = np.asarray(cluster_events[idx])
         cpus = np.asarray(cluster_cpus[idx])
         count = addrs.size
@@ -170,6 +218,21 @@ def plot_clusters(cluster_cycles, cluster_addresses, cluster_cpus, cluster_ips, 
 
         mplstyle.use('fast')
 
+        # map cycles to time using provided start_ts/end_ts if available
+        if start_ts is not None and end_ts is not None:
+            cmin = cycles.min()
+            cmax = cycles.max()
+            if cmax == cmin:
+                sys.exit(1)
+            times = start_ts + (cycles - cmin) * (end_ts - start_ts) / (cmax - cmin)
+        else:
+            # fallback: relative cycles in seconds (not real seconds)
+            times = cycles - cycles.min()
+
+        # convert addresses to GB with bottom at 0
+        addrs_gb = (addrs - np.min(addrs)) / GB
+        y_max_gb = addrs_gb.max() if addrs_gb.size > 0 else 0
+
         if not use_heatmap:
             # Scatter mode (original)
             plt.figure(figsize=(10, 6))
@@ -179,7 +242,7 @@ def plot_clusters(cluster_cycles, cluster_addresses, cluster_cpus, cluster_ips, 
                     mask = (events == evt_type)
                     if not np.any(mask):
                         continue
-                    plt.scatter(cycles[mask], addrs[mask], s=3, color=color, label=label, alpha=0.5, edgecolors='none')
+                    plt.scatter(times[mask], addrs_gb[mask], s=3, color=color, label=label, alpha=0.6, edgecolors='none')
             elif color_by == "cpu":
                 unique_cpus = np.unique(cpus)
                 if unique_cpus.size == 0:
@@ -190,23 +253,35 @@ def plot_clusters(cluster_cycles, cluster_addresses, cluster_cpus, cluster_ips, 
 
                 for cpu in unique_cpus:
                     mask = (cpus == cpu)
-                    plt.scatter(cycles[mask], addrs[mask], s=1, color=cpu_to_color[cpu], label=f'CPU {cpu}', alpha=0.5, edgecolors='none')
+                    plt.scatter(times[mask], addrs_gb[mask], s=1, color=cpu_to_color[cpu], label=f'CPU {cpu}', alpha=0.6, edgecolors='none')
             else:
                 print(f"Unknown color_by option: {color_by}")
                 return
 
-            plt.xlabel("Cycle")
-            plt.ylabel("Virtual Address")
+            plt.xlabel("Time")
+            plt.ylabel("Virtual Address (GB)")
             if args.title == "":
                 plt.title(f"Alloc Cluster {idx}: 0x{cluster_start:x} - 0x{cluster_end:x} ({count} accesses, {percent:.2f}%)")
             else:
                 plt.title(args.title)
-            plt.gca().yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f'0x{int(x):x}'))
-            plt.grid(True)
-            plt.tight_layout()
-            plt.legend(markerscale=3, fontsize=7, loc='upper right')
 
-            output_file = os.path.join(out_dir, f"{basename}-{idx}-{color_by}-scatter.png")
+            # format x-axis as human-readable timestamps if we have absolute times
+            if start_ts is not None and end_ts is not None:
+                def fmt_ts(x, _):
+                    return f"{x:.0f}"
+                plt.gca().xaxis.set_major_formatter(ticker.FuncFormatter(fmt_ts))
+
+            plt.gca().yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x:.1f}"))
+            plt.ylim(0, max(y_max_gb * 1.05, 1.0))
+            plt.legend(loc='upper right', markerscale=2.0)
+
+            if args.output != None:
+                base = os.path.splitext(args.output)[0]
+                output_file = f"{base}-{idx}"
+            else:
+                output_file = os.path.join(out_dir, f"{basename}-{idx}-{color_by}-scatter.png")
+
+            plt.tight_layout()
             plt.savefig(output_file, dpi=300)
             plt.close()
             print(f"Saved cluster scatter plot to {output_file}")
@@ -216,13 +291,12 @@ def plot_clusters(cluster_cycles, cluster_addresses, cluster_cpus, cluster_ips, 
             mplstyle.use('fast')
             plt.figure(figsize=(10, 6))
 
-            bins_x = 500
-            bins_y = 500
+            bins_x = 300
+            bins_y = 300
 
             # Build common edges for this cluster so all histograms align
-            # if cycles/addrs are constant (rare), expand a tiny epsilon to avoid zero-width bins
-            cmin, cmax = float(cycles.min()), float(cycles.max())
-            amin, amax = float(addrs.min()), float(addrs.max())
+            cmin, cmax = float(times.min()), float(times.max())
+            amin, amax = float(addrs_gb.min()), float(addrs_gb.max())
             if cmin == cmax:
                 cmin -= 0.5
                 cmax += 0.5
@@ -243,7 +317,7 @@ def plot_clusters(cluster_cycles, cluster_addresses, cluster_cpus, cluster_ips, 
                     if not np.any(mask):
                         Hs.append(np.zeros((bins_x, bins_y), dtype=np.float32))
                         continue
-                    H, _, _ = np.histogram2d(cycles[mask], addrs[mask], bins=bins_edges)
+                    H, _, _ = np.histogram2d(times[mask], addrs_gb[mask], bins=bins_edges)
                     Hs.append(H)
 
                 stack = np.stack(Hs, axis=0)  # (n_events, bins_x, bins_y)
@@ -260,18 +334,24 @@ def plot_clusters(cluster_cycles, cluster_addresses, cluster_cpus, cluster_ips, 
 
                 extent = [xedges[0], xedges[-1], yedges[0], yedges[-1]]
                 plt.imshow(img, origin='lower', extent=extent, aspect='auto', interpolation='nearest')
-                plt.xlabel("Cycle")
-                plt.ylabel("Virtual Address")
+                plt.xlabel("Time")
+                plt.ylabel("Virtual Address (GB)")
                 if args.title == "":
                     plt.title(f"Alloc Cluster {idx}: 0x{cluster_start:x} - 0x{cluster_end:x} ({count} accesses, {percent:.2f}%)")
                 else:
                     plt.title(args.title)
-                plt.gca().yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f'0x{int(x):x}'))
+
+                if start_ts is not None and end_ts is not None:
+                    def fmt_ts(x, _):
+                        return f"{x:.0f}"
+                    plt.gca().xaxis.set_major_formatter(ticker.FuncFormatter(fmt_ts))
+
+                plt.gca().yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x:.1f}"))
                 plt.grid(False)
                 plt.tight_layout()
 
                 handles = [plt.Line2D([0], [0], marker='s', color='w', markerfacecolor=event_colors[k][1], markersize=8, label=event_colors[k][0]) for k in sorted_evt_keys]
-                plt.legend(handles=handles, fontsize=7, loc='upper right')
+                plt.legend(handles=handles, loc='upper right', markerscale=2.0)
 
             elif color_by == "cpu":
                 unique_cpus = np.unique(cpus)
@@ -293,7 +373,7 @@ def plot_clusters(cluster_cycles, cluster_addresses, cluster_cpus, cluster_ips, 
                     if not np.any(mask):
                         Hs.append(np.zeros((bins_x, bins_y), dtype=np.float32))
                         continue
-                    H, _, _ = np.histogram2d(cycles[mask], addrs[mask], bins=bins_edges)
+                    H, _, _ = np.histogram2d(times[mask], addrs_gb[mask], bins=bins_edges)
                     Hs.append(H)
 
                 stack = np.stack(Hs, axis=0)
@@ -310,10 +390,16 @@ def plot_clusters(cluster_cycles, cluster_addresses, cluster_cpus, cluster_ips, 
 
                 extent = [xedges[0], xedges[-1], yedges[0], yedges[-1]]
                 plt.imshow(img, origin='lower', extent=extent, aspect='auto', interpolation='nearest')
-                plt.xlabel("Cycle")
-                plt.ylabel("Virtual Address")
+                plt.xlabel("Time")
+                plt.ylabel("Virtual Address (GB)")
                 plt.title(f"Alloc Cluster {idx}: 0x{cluster_start:x} - 0x{cluster_end:x} ({count} accesses, {percent:.2f}%)")
-                plt.gca().yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f'0x{int(x):x}'))
+
+                if start_ts is not None and end_ts is not None:
+                    def fmt_ts(x, _):
+                        return f"{x:.0f}"
+                    plt.gca().xaxis.set_major_formatter(ticker.FuncFormatter(fmt_ts))
+
+                plt.gca().yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x:.1f}"))
                 plt.grid(False)
                 plt.tight_layout()
 
@@ -323,13 +409,18 @@ def plot_clusters(cluster_cycles, cluster_addresses, cluster_cpus, cluster_ips, 
                 for i in range(max_legend):
                     cpu = unique_cpus[i]
                     handles.append(plt.Line2D([0], [0], marker='s', color='w', markerfacecolor=colors_list[i], markersize=6, label=f'CPU {cpu}'))
-                plt.legend(handles=handles, fontsize=7, loc='upper right')
+                plt.legend(handles=handles, loc='upper right', markerscale=2.0)
 
             else:
                 print(f"Unknown color_by option: {color_by}")
                 return
 
-            output_file = os.path.join(out_dir, f"{basename}-{idx}-{color_by}-heatmap.png")
+            if args.output != None:
+                base = os.path.splitext(args.output)[0]
+                output_file = f"{base}-{idx}"
+            else:
+                output_file = os.path.join(out_dir, f"{basename}-{idx}-{color_by}-heatmap.png")
+
             plt.savefig(output_file, dpi=300)
             plt.close()
             print(f"Saved cluster heatmap to {output_file}")
@@ -339,7 +430,7 @@ def plot_clusters(cluster_cycles, cluster_addresses, cluster_cpus, cluster_ips, 
 def print_clusters(clusters):
     print(f"Found {len(clusters)} allocation clusters (gap ≥ {gap_threshold_gb} GB)")
     for idx, (start, end) in enumerate(clusters):
-        print(f"Cluster {idx}: {(end - start) / 1024 ** 3:.4f} GB   {hex(start)} - {hex(end)}")
+        print(f"Cluster {idx}: {(end - start) / GB:.4f} GB   {hex(start)} - {hex(end)}")
 
 
 def print_mem(raw_addresses, cluster_addresses):
@@ -376,6 +467,26 @@ if __name__ == "__main__":
     clusters = [clusters[i] for i in range(len(clusters)) if keep_mask[i]]
 
     print_clusters(clusters)
-    plot_clusters(cluster_cycles, cluster_addresses, cluster_cpus, cluster_ips, cluster_events, clusters, raw_addresses.size, config, color_by, use_heatmap=use_heatmap)
+
+    # determine debuglog path in same folder as config
+    config_path = Path(config)
+    out_dir = str(config_path.parent) if config_path.parent != Path('.') else '.'
+    debuglog_path = os.path.join(out_dir, 'debuglog.txt')
+
+    start_ts = None
+    end_ts = None
+    if os.path.exists(debuglog_path):
+        try:
+            orig_start, orig_end = parse_log(debuglog_path)
+            full_range = orig_end - orig_start
+            start_ts = orig_start + full_range * (start_percent / 100)
+            end_ts   = orig_start + full_range * (end_percent / 100)
+            print(f"start={start_ts}, end={end_ts}")
+        except Exception as e:
+            print(f"Warning: failed to parse debuglog '{debuglog_path}': {e}. Falling back to cycle-relative X axis.")
+    else:
+        print(f"No debuglog found at {debuglog_path}. Using cycle-relative X axis.")
+
+    plot_clusters(cluster_cycles, cluster_addresses, cluster_cpus, cluster_ips, cluster_events, clusters, raw_addresses.size, config, color_by, use_heatmap=use_heatmap, start_ts=start_ts, end_ts=end_ts)
 
     print_mem(raw_addresses, cluster_addresses)

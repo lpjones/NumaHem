@@ -14,6 +14,13 @@ import os
 import re
 import sys
 from typing import Dict, List, Tuple
+import matplotlib.pyplot as plt
+from pathlib import Path
+
+# Get the directory of the current script
+script_dir = Path(__file__).resolve().parent
+
+plt.style.use(os.path.join(script_dir, 'ieee.mplstyle'))
 
 args = None
 
@@ -115,8 +122,8 @@ def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
     parser = argparse.ArgumentParser(description="Plot images/sec per epoch from one or more app logs.")
     parser.add_argument("files", nargs="+", help="One or more app output files to parse.")
-    parser.add_argument("-o", "--output", required=True, help="Output image filename (e.g. out.png).")
-    parser.add_argument("--title", default="ResNet50 Throughput", help="Plot title.")
+    parser.add_argument("output", help="Output image filename (e.g. out.png, out.pdf).")
+    parser.add_argument("--title", default="ResNet50 Images/Sec", help="Plot title.")
     parser.add_argument("--labels", nargs='+', default=None, help="labels for graph lines")
     args = parser.parse_args(argv)
 

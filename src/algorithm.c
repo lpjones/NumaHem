@@ -4,15 +4,15 @@
 #define ABS(x) ((x) >= 0 ? (x) : -(x))
 
 #ifndef VA_WEIGHT
-#define VA_WEIGHT 0.33
+#define VA_WEIGHT 1
 #endif
 
 #ifndef CYC_WEIGHT
-#define CYC_WEIGHT 0.33
+#define CYC_WEIGHT 1
 #endif
 
 #ifndef IP_WEIGHT
-#define IP_WEIGHT 0.33
+#define IP_WEIGHT 1
 #endif
 
 #ifndef DEC_UP
@@ -94,9 +94,14 @@ static double calc_distance(struct tmem_page *a, struct tmem_page *b) {
     distance += cyc_diff * CYC_WEIGHT;
     distance += ip_diff * IP_WEIGHT;
 
-    if (distance == 0) return 0;
+    // if (distance == 0) return ;
 
-    bot_dist = update_bot(bot_dist, distance);
+    double percent_dram = pebs_stats.dram_accesses / (pebs_stats.dram_accesses + pebs_stats.rem_accesses + 1);
+
+    bot_dist = update_bot(bot_dist, distance * (1 - percent_dram * percent_dram));
+
+    // when the percent is good you want it to do less (lower threshold)
+    // when the percent is bad you want it to do more (higher threshold)
 
 
     avg_dist = DEC_DIST * distance + (1.0 - DEC_DIST) * avg_dist;
@@ -117,7 +122,7 @@ static void update_neighbors(struct tmem_page *old_page) {
         if (cur_page == old_page) continue;
 
         double distance = calc_distance(old_page, cur_page);
-        assert(distance != 0);
+        // assert(distance != 0);
         
         // Find empty spot or furthest distance neighbor O(MAX_NEIGHBORS)
         struct neighbor_page *furthest_neighbor = NULL;
@@ -233,60 +238,6 @@ void algo_predict_pages(struct tmem_page *page, struct tmem_page **pred_pages, u
     // LOG_DEBUG("Threshold: %.2e, avg_dist: %.2e\n", bot_dist, avg_dist);
     double threshold = bot_dist;
 
-
-    //BFS
-#if BFS_ALGO == 1
-#ifndef BFS_QUEUE_MAX
-#define BFS_QUEUE_MAX 256
-#endif
-    uint32_t max_preds = MAX_PRED_DEPTH * MAX_NEIGHBORS;
-
-
-    struct bfs_node {
-        struct tmem_page *page;
-        uint32_t depth;
-        uint64_t tot_time_diff;
-    };
-
-    struct bfs_node queue[BFS_QUEUE_MAX];
-    uint32_t head = 0, tail = 0;
-    
-
-    // enqueue root
-    queue[tail++] = (struct bfs_node){ .page = page, .depth = 0, .tot_time_diff = 0 };
-
-    while (head < tail && *idx < max_preds) {
-        struct bfs_node cur = queue[head++];
-        if (cur.depth >= MAX_PRED_DEPTH)
-            continue;
-
-        for (uint32_t n = 0; n < MAX_NEIGHBORS; n++) {
-            struct neighbor_page *nbr = &cur.page->neighbors[n];
-            if (!nbr->page) continue;
-            if (nbr->distance == 0 || nbr->distance >= threshold)
-                continue;
-
-            uint64_t new_time = cur.tot_time_diff + nbr->time_diff;
-
-            // prediction condition
-            if (new_time > mig_move_time + mig_queue_time) {
-                pred_pages[(*idx)++] = nbr->page;
-                if (*idx >= max_preds)
-                    return;
-            }
-
-            // enqueue if not visited and depth within limit
-            if (tail < BFS_QUEUE_MAX) {
-                queue[tail++] = (struct bfs_node){
-                    .page = nbr->page,
-                    .depth = cur.depth + 1,
-                    .tot_time_diff = new_time
-                };
-            }
-        }
-    }
-#endif
-
 #if DFS_ALGO == 1
     // DFS
     uint64_t tot_time_diff = 0;
@@ -313,61 +264,6 @@ void algo_predict_pages(struct tmem_page *page, struct tmem_page **pred_pages, u
         tot_time_diff += closest_neighbor->time_diff;
     }
 
-    /* Sudo code algorithm
-        pred_pages = []
-        cur_page = sample_page
-        for (i = 0; i < max_depth; i++) {
-            for (n in cur_page.neighbors) {
-                if (n.distance < threshold and n.time_diff > migration_time)
-                    pred_pages += n.page
-            }
-            closest_page = min(page.neighbors, distance)
-            cur_page = closest_page
-        }
-
-    */
 #endif
 
-    // for (uint32_t i = 0; i < MAX_NEIGHBORS; i++) {
-    //     if (page->neighbors[i].distance != 0 && page->neighbors[i].distance < threshold) {
-    //         assert(page->neighbors[i].page != NULL);
-    //         if (page->neighbors[i].time_diff < mig_move_time + mig_queue_time) {    // too soon search further
-                
-    //         } else {
-    //             pred_pages[*idx] = page->neighbors[i].page;
-    //             *idx = *idx + 1;
-    //         }
-
-            
-    //     }
-    //     // record_neighbor(&page->neighbors[i]); //45
-    // }
-    
-    // mig_time *= .99999;    // decay migration time so it doesn't get stuck
-    // fwrite(&threshold, sizeof(double), 1, pred_fp); //8
 }
-
-// struct tmem_page* algo_predict_page(struct tmem_page *page) {
-//     if (pebs_stats.throttles > pebs_stats.unthrottles) return NULL;
-
-//     // return closest neighbor if below threshold
-//     struct neighbor_page *close_neighbor = &page->neighbors[0];
-//     for (uint32_t i = 1; i < MAX_NEIGHBORS; i++) {
-//         if (close_neighbor->distance == 0 || page->neighbors[i].distance < close_neighbor->distance) {
-//             close_neighbor = &page->neighbors[i];
-//         }
-//     }
-
-//     if (close_neighbor->page == NULL) return NULL;
-    
-//     // uint64_t pebs_throttles = pebs_stats.throttles - pebs_stats.unthrottles;
-//     // printf("threshold normalizer: %lu\n", (500 * SAMPLE_PERIOD * (pebs_throttles)));
-//     double threshold = avg_dist / 4000;
-//     // double threshold = bot_dist;
-//     if (close_neighbor->distance < threshold) {
-//         return close_neighbor->page;
-//     }
-
-//     //(500 * SAMPLE_PERIOD * (pebs_stats.throttles - pebs_stats.unthrottles + 1))
-//     return NULL;
-// }

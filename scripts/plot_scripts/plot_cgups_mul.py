@@ -15,6 +15,13 @@ Requirements:
 import sys
 import os
 import argparse
+import matplotlib.pyplot as plt
+from pathlib import Path
+
+# Get the directory of the current script
+script_dir = Path(__file__).resolve().parent
+
+plt.style.use(os.path.join(script_dir, 'ieee.mplstyle'))
 
 def parse_args():
     p = argparse.ArgumentParser(
@@ -26,7 +33,6 @@ def parse_args():
     p.add_argument("--xlabel", default="Seconds", help="Label for the x-axis.")
     p.add_argument("--ylabel", default="Throughput (bytes)", help="Label for the y-axis.")
     p.add_argument("--title", default="GUPS Throughput", help="Plot title.")
-    p.add_argument("--no-grid", action="store_true", help="Disable grid on the plot.")
     return p.parse_args()
 
 def extract_numbers_from_file(path):
@@ -46,7 +52,7 @@ def extract_numbers_from_file(path):
                 # else: ignore (this will ignore hex addresses and text)
     return nums
 
-def plot_multiple(datasets, labels, outpath, xlabel, ylabel, title, show_grid):
+def plot_multiple(datasets, labels, outpath, xlabel, ylabel, title):
     import matplotlib.pyplot as plt
 
     if not datasets:
@@ -71,10 +77,7 @@ def plot_multiple(datasets, labels, outpath, xlabel, ylabel, title, show_grid):
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
     plt.title(title)
-    if show_grid:
-        plt.grid(True)
-    plt.legend(loc="best", fontsize="small")
-    plt.tight_layout()
+    plt.legend(loc="best")
 
     # Ensure parent dir exists
     odir = os.path.dirname(outpath)
@@ -110,7 +113,7 @@ def main():
         if args.labels == None:
             labels.append(os.path.splitext(os.path.basename(p))[0])
 
-    rc = plot_multiple(datasets, labels, outpath, args.xlabel, args.ylabel, args.title, not args.no_grid)
+    rc = plot_multiple(datasets, labels, outpath, args.xlabel, args.ylabel, args.title)
     return rc
 
 if __name__ == "__main__":

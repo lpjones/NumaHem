@@ -29,7 +29,9 @@
 // Use either DRAM_BUFFER or DRAM_SIZE
 // #define DRAM_BUFFER (1 * 1024L * 1024L * 1024L)     // How much to leave available on DRAM node
 
-#define DRAM_SIZE (2 * 1024L * 1024L * 1024L)
+#ifndef DRAM_SIZE
+    #define DRAM_SIZE (2 * 1024L * 1024L * 1024L)
+#endif
 
 
 extern struct fifo_list hot_list;
