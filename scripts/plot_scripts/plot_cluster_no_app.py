@@ -258,7 +258,7 @@ def plot_clusters(cluster_cycles, cluster_addresses, cluster_cpus, cluster_ips, 
                 print(f"Unknown color_by option: {color_by}")
                 return
 
-            plt.xlabel("Time")
+            plt.xlabel("Time (s)")
             plt.ylabel("Virtual Address (GB)")
             if args.title == "":
                 plt.title(f"Alloc Cluster {idx}: 0x{cluster_start:x} - 0x{cluster_end:x} ({count} accesses, {percent:.2f}%)")
@@ -334,7 +334,7 @@ def plot_clusters(cluster_cycles, cluster_addresses, cluster_cpus, cluster_ips, 
 
                 extent = [xedges[0], xedges[-1], yedges[0], yedges[-1]]
                 plt.imshow(img, origin='lower', extent=extent, aspect='auto', interpolation='nearest')
-                plt.xlabel("Time")
+                plt.xlabel("Time (s)")
                 plt.ylabel("Virtual Address (GB)")
                 if args.title == "":
                     plt.title(f"Alloc Cluster {idx}: 0x{cluster_start:x} - 0x{cluster_end:x} ({count} accesses, {percent:.2f}%)")
@@ -390,7 +390,7 @@ def plot_clusters(cluster_cycles, cluster_addresses, cluster_cpus, cluster_ips, 
 
                 extent = [xedges[0], xedges[-1], yedges[0], yedges[-1]]
                 plt.imshow(img, origin='lower', extent=extent, aspect='auto', interpolation='nearest')
-                plt.xlabel("Time")
+                plt.xlabel("Time (s)")
                 plt.ylabel("Virtual Address (GB)")
                 plt.title(f"Alloc Cluster {idx}: 0x{cluster_start:x} - 0x{cluster_end:x} ({count} accesses, {percent:.2f}%)")
 

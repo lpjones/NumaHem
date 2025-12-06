@@ -258,6 +258,7 @@ void make_cold_request(struct tmem_page* page) {
 #endif
     pthread_mutex_unlock(&page->page_lock);
 }
+static uint64_t samples_since_cool = 0;
 
 void process_perf_buffer(int cpu_idx, int evt) {
     struct perf_event_mmap_page *p = perf_page[cpu_idx][evt];
@@ -363,17 +364,29 @@ void process_perf_buffer(int cpu_idx, int evt) {
         } else {
             make_cold_request(page);
         }
+
+        // Sample based cooling
+        samples_since_cool++;
+        if (samples_since_cool >= SAMPLE_COOLING_THRESHOLD) {
+            global_clock++;
+            samples_since_cool = 0;
+            // printf("cyc since last cool: %lu\n", cur_cyc - last_cyc_cool);
+            last_cyc_cool = rdtscp();
+        }
+
+        // Time based cooling
+        // if (cur_cyc - last_cyc_cool > CYC_COOL_THRESHOLD) {
+        //     // global_clock++;
+        //     // __atomic_fetch_add(&global_clock, 1, __ATOMIC_RELEASE);
+        //     global_clock++;
+        //     last_cyc_cool = cur_cyc;
+        // }
+
 #endif 
 
         
 
-        // if (samples_since_cool >= SAMPLE_COOLING_THRESHOLD) {
-        //     global_clock++;
-        //     samples_since_cool = 0;
-        //     uint64_t cur_cyc = rdtscp();
-        //     printf("cyc since last cool: %lu\n", cur_cyc - last_cyc_cool);
-        //     last_cyc_cool = cur_cyc;
-        // }
+        
 #if CLUSTER_ALGO == 1
         algo_add_page(page);
         
@@ -405,13 +418,6 @@ void process_perf_buffer(int cpu_idx, int evt) {
 #endif
 #endif
 
-        
-        if (cur_cyc - last_cyc_cool > CYC_COOL_THRESHOLD) {
-            // global_clock++;
-            // __atomic_fetch_add(&global_clock, 1, __ATOMIC_RELEASE);
-            global_clock++;
-            last_cyc_cool = cur_cyc;
-        }
         no_samples[cpu_idx][evt] = cur_cyc;
 
     }
@@ -441,7 +447,6 @@ void* pebs_scan_thread() {
     assert(s == 0);
     // pebs_init();
 
-    // uint64_t samples_since_cool = 0;
     last_cyc_cool = rdtscp();
 
     // uint64_t num_loops = 0;

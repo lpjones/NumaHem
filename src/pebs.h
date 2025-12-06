@@ -47,7 +47,7 @@
 #endif
 
 #ifndef SAMPLE_PERIOD
-    #define SAMPLE_PERIOD 100
+    #define SAMPLE_PERIOD 3200
 #endif
 
 #ifndef PERF_PAGES

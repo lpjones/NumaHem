@@ -20,6 +20,7 @@ dec_up ?= 0.01
 max_neighbors ?= 8
 page_size ?= 2097152
 dram_size ?= 2147483648
+sample_period ?= 100
 
 CFLAGS += -DPEBS_STATS=$(pebs_stats)
 CFLAGS += -DCLUSTER_ALGO=$(cluster_algo)
@@ -35,6 +36,7 @@ CFLAGS += -DMAX_NEIGHBORS=$(max_neighbors)
 CFLAGS += -DPAGE_SIZE=$(page_size)
 CFLAGS += -DDRAM_SIZE=$(dram_size)
 CFLAGS += -DLRU_ALGO=$(lru_algo)
+CFLAGS += -DSAMPLE_PERIOD=$(sample_period)
 
 # Sources / Objects
 SRCS := interpose.c tmem.c pebs.c timer.c logging.c spsc-ring.c fifo.c algorithm.c

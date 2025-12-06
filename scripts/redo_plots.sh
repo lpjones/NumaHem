@@ -14,7 +14,7 @@ STREAM_DIR="../workloads/stream"
 YCSB_DIR="../workloads/YCSB"
 PLOT_SCRIPTS_DIR="plot_scripts"
 
-result_dir="ar8_results"
+result_dir="results"
 
 ORIG_PWD="$(pwd)"
 
@@ -68,7 +68,7 @@ run_pagr_hem_loc() {
   ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_resnet.py" \
     "${app_dir}/resnet-PAGR-${app}/app.txt" \
     "${app_dir}/resnet-hem-${app}/app.txt" \
-    "${app_dir}/resnet-local/app.txt" \
+    "${app_dir}/resnet-local-${app}/app.txt" \
     "${app_dir}/resnet-PAGR_HeMem_loc-${app}.png" \
     --labels "PAGR" "HeMem" "Local" \
     --title "ResNet50 Images/Sec"
@@ -77,7 +77,7 @@ run_pagr_hem_loc() {
   ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_cgups_mul.py" \
     "${app_dir}/cgups-PAGR-${app}/app.txt" \
     "${app_dir}/cgups-hem-${app}/app.txt" \
-    "${app_dir}/cgups-local/app.txt" \
+    "${app_dir}/cgups-local-${app}/app.txt" \
     "${app_dir}/cgups-PAGR_HeMem_loc-${app}.png" \
     --labels "PAGR" "HeMem" "Local" \
     --title "GUPS Throughput"
@@ -86,7 +86,7 @@ run_pagr_hem_loc() {
   ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_gapbs_mul.py" \
     "${app_dir}/bfs-PAGR-${app}/app.txt" \
     "${app_dir}/bfs-hem-${app}/app.txt" \
-    "${app_dir}/bfs-local/app.txt" \
+    "${app_dir}/bfs-local-${app}/app.txt" \
     "${app_dir}/bfs-PAGR_HeMem_loc-${app}.png" \
     --labels "PAGR" "HeMem" "Local" \
     --title "BFS Trial Times"
@@ -95,7 +95,7 @@ run_pagr_hem_loc() {
   ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stream_mul.py" \
     "${app_dir}/stream-PAGR-${app}/app.txt" \
     "${app_dir}/stream-hem-${app}/app.txt" \
-    "${app_dir}/stream-local/app.txt" \
+    "${app_dir}/stream-local-${app}/app.txt" \
     "${app_dir}/stream-PAGR_HeMem_loc-${app}.png" \
     --labels "PAGR" "HeMem" "Local" \
     --title "Stream Trial Times"
@@ -104,7 +104,7 @@ run_pagr_hem_loc() {
   ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_gapbs_mul.py" \
     "${app_dir}/bc-PAGR-${app}/app.txt" \
     "${app_dir}/bc-hem-${app}/app.txt" \
-    "${app_dir}/bc-local/app.txt" \
+    "${app_dir}/bc-local-${app}/app.txt" \
     "${app_dir}/bc-PAGR_HeMem_loc-${app}.png" \
     --labels "PAGR" "HeMem" "Local" \
     --title "BC Trial Times"
@@ -256,6 +256,57 @@ run_stats_pagr_hem() {
     --start-percent 0 \
     --end-percent 100 \
     -o "${app_dir}/cgups-PAGR_HeMem_per-${app}.png"
+
+  # Migrations
+  # Resnet
+  ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stats_mul.py" \
+    -f "${app_dir}/resnet-PAGR-${app}/stats.txt" \
+    "${app_dir}/resnet-hem-${app}/stats.txt" \
+    -g1 "promotions" "demotions" \
+    --labels "PAGR" "HeMem" \
+    --start-percent 0 \
+    --end-percent 10 \
+    -o "${app_dir}/resnet-PAGR_HeMem_mig-${app}.png"
+
+  # BC
+  ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stats_mul.py" \
+    -f "${app_dir}/bc-PAGR-${app}/stats.txt" \
+    "${app_dir}/bc-hem-${app}/stats.txt" \
+    -g1 "promotions" "demotions" \
+    --labels "PAGR" "HeMem" \
+    --start-percent 0 \
+    --end-percent 100 \
+    -o "${app_dir}/bc-PAGR_HeMem_mig-${app}.png"
+
+  # BFS
+  ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stats_mul.py" \
+    -f "${app_dir}/bfs-PAGR-${app}/stats.txt" \
+    "${app_dir}/bfs-hem-${app}/stats.txt" \
+    -g1 "promotions" "demotions" \
+    --labels "PAGR" "HeMem" \
+    --start-percent 0 \
+    --end-percent 100 \
+    -o "${app_dir}/bfs-PAGR_HeMem_mig-${app}.png"
+  
+  # Stream
+  ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stats_mul.py" \
+    -f "${app_dir}/stream-PAGR-${app}/stats.txt" \
+    "${app_dir}/stream-hem-${app}/stats.txt" \
+    -g1 "promotions" "demotions" \
+    --labels "PAGR" "HeMem" \
+    --start-percent 0 \
+    --end-percent 100 \
+    -o "${app_dir}/stream-PAGR_HeMem_mig-${app}.png"
+
+  # GUPS
+  ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stats_mul.py" \
+    -f "${app_dir}/cgups-PAGR-${app}/stats.txt" \
+    "${app_dir}/cgups-hem-${app}/stats.txt" \
+    -g1 "promotions" "demotions" \
+    --labels "PAGR" "HeMem" \
+    --start-percent 0 \
+    --end-percent 100 \
+    -o "${app_dir}/cgups-PAGR_HeMem_mig-${app}.png"
 }
 
 run_trace() {
@@ -265,7 +316,7 @@ run_trace() {
   echo "Memory Traces"
   # Local
   ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_cluster_no_app.py" \
-    "${app_dir}/bc-local/tmem_trace.bin" \
+    "${app_dir}/bc-local-${app}/tmem_trace.bin" \
     --title "BC All Local Memory Trace" \
     --output "${app_dir}/bc-local-trace.png" \
     --start-percent 50 \
@@ -273,15 +324,15 @@ run_trace() {
     -fast
 
   ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_cluster_no_app.py" \
-    "${app_dir}/resnet-local/tmem_trace.bin" \
+    "${app_dir}/resnet-local-${app}/tmem_trace.bin" \
     --title "ResNet50 All Local Memory Trace" \
     --output "${app_dir}/resnet-local-trace.png" \
     --start-percent 0 \
-    --end-percent 5 \
+    --end-percent 8 \
     -fast
 
   ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_cluster_no_app.py" \
-    "${app_dir}/cgups-local/tmem_trace.bin" \
+    "${app_dir}/cgups-local-${app}/tmem_trace.bin" \
     --title "GUPS All Local Memory Trace" \
     --output "${app_dir}/cgups-local-trace.png" \
     --start-percent 0 \
@@ -289,7 +340,7 @@ run_trace() {
     -fast
 
   ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_cluster_no_app.py" \
-    "${app_dir}/bfs-local/tmem_trace.bin" \
+    "${app_dir}/bfs-local-${app}/tmem_trace.bin" \
     --title "BFS All Local Memory Trace" \
     --output "${app_dir}/bfs-local-trace.png" \
     --start-percent 50 \
@@ -297,7 +348,7 @@ run_trace() {
     -fast
 
   ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_cluster_no_app.py" \
-    "${app_dir}/stream-local/tmem_trace.bin" \
+    "${app_dir}/stream-local-${app}/tmem_trace.bin" \
     --title "Stream All Local Memory Trace" \
     --output "${app_dir}/stream-local-trace.png" \
     --start-percent 50 \
@@ -310,7 +361,7 @@ run_trace() {
     --title "ResNet50 PAGR Memory Trace" \
     --output "${app_dir}/resnet-PAGR-${app}-trace.png" \
     --start-percent 0 \
-    --end-percent 5 \
+    --end-percent 8 \
     -fast
 
   ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_cluster_no_app.py" \
@@ -318,7 +369,7 @@ run_trace() {
     --title "ResNet50 HeMem Memory Trace" \
     --output "${app_dir}/resnet-HeMem-${app}-trace.png" \
     --start-percent 0 \
-    --end-percent 5 \
+    --end-percent 8 \
     -fast
 
   # CGUPS
@@ -394,19 +445,19 @@ run_plots() {
   local app=$1
   local app_dir="${result_dir}"
   
-#   run_pagr_hem_loc $app
-#   echo
+  run_pagr_hem_loc $app
+  # echo
 
-#   run_pagr_hem $app
-#   echo
+  # run_pagr_hem $app
+  # echo
 
-#   run_pagr_loc $app
-#   echo
+  # run_pagr_loc $app
+  # echo
 
-#   run_stats_pagr_hem $app
-#   echo
+  run_stats_pagr_hem $app
+  echo
   
   run_trace $app
 }
 
-run_plots 2GB
+run_plots 2GB-6400
