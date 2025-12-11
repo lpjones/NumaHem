@@ -33,18 +33,10 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import os
 
+
 # Get the directory of the current script
 script_dir = Path(__file__).resolve().parent
-
-# keep using your local style if present; otherwise ignore failure silently
-mplstyle = os.path.join(script_dir, 'ieee.mplstyle')
-try:
-    plt.style.use(mplstyle)
-except Exception:
-    try:
-        plt.style.use('science')
-    except Exception:
-        pass
+plt.style.use(os.path.join(script_dir, 'ieee.mplstyle'))
 
 # small regex fix: allow optional +/-
 RE_METRIC = re.compile(r'([A-Za-z0-9_]+)\s*:\s*\[\s*([+-]?[0-9]*\.?[0-9]+(?:[eE][+-]?\d+)?)\s*\]')
@@ -123,14 +115,22 @@ def read_and_parse_file(path_or_handle, start_percent, end_percent):
     sliced = slice_lines_by_percent(lines, start_percent, end_percent)
     return parse_sparse(sliced)
 
-def plot_groups_multi(metrics_list, file_labels, g1, g2, out_fname=None, title=None):
+def plot_groups_multi(metrics_list, file_labels, args):
     """
     metrics_list: list of metrics dicts, one dict per input file
     file_labels: list of labels (same length as metrics_list)
     g1: list of metrics for left axis
     g2: list of metrics for right axis
     """
-    fig, ax1 = plt.subplots(figsize=(10,6))
+    g1 = args.g1
+    g2 = args.g2
+    out_fname = args.out
+    title = args.title
+
+    fig, ax1 = plt.subplots()
+    ax1.set_xlabel(args.xlabel)
+    ax1.set_ylabel(args.ylabel)
+
     plotted_any = False
 
     # plotting group1 (left axis)
@@ -144,9 +144,12 @@ def plot_groups_multi(metrics_list, file_labels, g1, g2, out_fname=None, title=N
             if len(xs) == 0:
                 print(f"Warning: metric '{m}' in file '{label_prefix}' has no samples; skipping.", file=sys.stderr)
                 continue
+            print(m, sum(ys) / len(ys))
             ax1.plot(xs, ys, label=f"{label_prefix}")
+            if args.yrange1:
+                ax1.set_ylim(float(args.yrange1[0]), float(args.yrange1[1]))
             plotted_any = True
-    if g1:
+    if g1 and g2:
         ax1.set_ylabel(" / ".join(g1))
 
     ax2 = None
@@ -163,7 +166,10 @@ def plot_groups_multi(metrics_list, file_labels, g1, g2, out_fname=None, title=N
                     print(f"Warning: metric '{m}' in file '{label_prefix}' has no samples; skipping.", file=sys.stderr)
                     continue
                 # dashed lines for group2
-                ax2.plot(xs, ys, linestyle='--', label=f"{label_prefix}: {m}")
+                print(m, sum(ys) / len(ys))
+                ax2.plot(xs, ys, label=f"{label_prefix}: {m}")
+                if args.yrange2:
+                    ax2.set_ylim(float(args.yrange2[0]), float(args.yrange2[1]))
                 plotted_any = True
         ax2.set_ylabel(" / ".join(g2))
 
@@ -181,9 +187,9 @@ def plot_groups_multi(metrics_list, file_labels, g1, g2, out_fname=None, title=N
         lines.extend(l2); labels.extend(lab2)
 
     if lines:
-        ax1.legend(lines, labels, loc='upper left')
+        ax1.legend(lines, labels, loc='lower right')
 
-    ax1.set_xlabel("Time (s)")
+    ax1.set_xlabel(args.xlabel)
     if title:
         plt.title(title)
     plt.grid(True)
@@ -202,8 +208,13 @@ def main():
     ap.add_argument('--labels', nargs='*', help='Optional labels for each input file (must match number of files)', default=None)
     ap.add_argument('-o', '--out', help='Output filename (png/pdf). If omitted, shows interactively', default=None)
     ap.add_argument('--title', help='Plot title', default=None)
+    ap.add_argument('--xlabel', help="x label", default="")
+    ap.add_argument('--ylabel', help="y label", default="")
     ap.add_argument('--start-percent', help='Start percent of file to read (0-100)', type=float, default=0.0)
     ap.add_argument('--end-percent', help='End percent of file to read (0-100)', type=float, default=100.0)
+    ap.add_argument("--yrange1", nargs=2, default=None, help="y range")
+    ap.add_argument("--yrange2", nargs=2, default=None, help="y range")
+    
     args = ap.parse_args()
 
     files = args.file
@@ -240,7 +251,7 @@ def main():
         nf = len(files) if files else 1
         print(f"Reading {nf} file(s) -> slice [{args.start_percent}%, {args.end_percent}%] applied to each", file=sys.stderr)
 
-    plot_groups_multi(metrics_list, file_labels, args.g1, args.g2, out_fname=args.out, title=args.title)
+    plot_groups_multi(metrics_list, file_labels, args)
 
 if __name__ == '__main__':
     main()

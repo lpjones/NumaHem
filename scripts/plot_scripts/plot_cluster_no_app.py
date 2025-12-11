@@ -195,12 +195,14 @@ def cluster_mem_np(cycles, addrs, cpus, ips, events, clusters):
 def plot_clusters(cluster_cycles, cluster_addresses, cluster_cpus, cluster_ips, cluster_events, clusters, tot_addrs, config, color_by, use_heatmap=False, start_ts=None, end_ts=None):
     global args
     event_colors = {
-        0: ('Local Access', 'tab:blue'),
-        1: ('Remote Access',  'tab:orange'),
+        0: ('Fast Mem Access', 'tab:blue'),
+        1: ('Slow Mem Access',  'tab:orange'),
     }
 
     out_dir = os.path.dirname(config) or '.'
     basename = os.path.splitext(os.path.basename(config))[0]
+    ext = args.output.split(".")[-1]
+
 
     for idx in range(len(clusters)):
         cycles = np.asarray(cluster_cycles[idx]).astype(np.float64)
@@ -277,9 +279,9 @@ def plot_clusters(cluster_cycles, cluster_addresses, cluster_cpus, cluster_ips, 
 
             if args.output != None:
                 base = os.path.splitext(args.output)[0]
-                output_file = f"{base}-{idx}"
+                output_file = f"{base}-{idx}.{ext}"
             else:
-                output_file = os.path.join(out_dir, f"{basename}-{idx}-{color_by}-scatter.png")
+                output_file = os.path.join(out_dir, f"{basename}-{idx}-{color_by}-scatter.{ext}")
 
             plt.tight_layout()
             plt.savefig(output_file, dpi=300)
@@ -417,9 +419,9 @@ def plot_clusters(cluster_cycles, cluster_addresses, cluster_cpus, cluster_ips, 
 
             if args.output != None:
                 base = os.path.splitext(args.output)[0]
-                output_file = f"{base}-{idx}"
+                output_file = f"{base}-{idx}.{ext}"
             else:
-                output_file = os.path.join(out_dir, f"{basename}-{idx}-{color_by}-heatmap.png")
+                output_file = os.path.join(out_dir, f"{basename}-{idx}-{color_by}-heatmap.{ext}")
 
             plt.savefig(output_file, dpi=300)
             plt.close()

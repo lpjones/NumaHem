@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# run_test.sh
-# Usage:
-#   ./run_test.sh              # runs the example at the bottom
-#   OR source this file and call run_app "myconfig" "<full command line>"
+# run_test.sh Usage: ./run_test.sh              # runs the example at the bottom
+# OR source this file and call run_app "myconfig" "<full command line>"
 
 PRELOAD="/proj/TppPlus/tpp/libnuma_pgmig/src/libtmem.so"
 CGUPS_DIR="../workloads/cgups"
@@ -18,13 +16,10 @@ result_dir="results"
 
 ORIG_PWD="$(pwd)"
 
-# run once to pin/disable CPUs if you have such a helper
-# if [ -x ./disable_cpus.sh ]; then
-#   echo "Running disable_cpus.sh"
-#   ./disable_cpus.sh
-# else
-#   echo "Warning: disable_cpus.sh not found or not executable; skipping."
-# fi
+# run once to pin/disable CPUs if you have such a helper if [ -x
+# ./disable_cpus.sh ]; then echo "Running disable_cpus.sh" ./disable_cpus.sh
+#   else echo "Warning: disable_cpus.sh not found or not executable; skipping."
+#   fi
 
 # Ensure result_dir exists
 mkdir -p "${result_dir}"
@@ -47,8 +42,8 @@ run_make() {
   echo "$@" > "make_config.txt"
 }
 
-# run_app <config_name> <command...>
-# Example: run_app "cgups" "${CGUPS_DIR}/gups64-rw 16 move 30 kill 60"
+# run_app <config_name> <command...> Example: run_app "cgups"
+# "${CGUPS_DIR}/gups64-rw 16 move 30 kill 60"
 run_app() {
   if [ $# -lt 3 ]; then
     echo "Usage: run_app <config_name> <dir> <command...>"
@@ -72,10 +67,11 @@ run_app() {
   local stdout_file="${app_dir}/app.txt"
   local stderr_file="${app_dir}/stderr.txt"
 
-  # Run the command with LD_PRELOAD. Use bash -c to allow redirections in the command
-  # but preferring not to lose quoting; we execute the array with LD_PRELOAD in environment.
-  # Capture exit code so we can report it.
-  # gdb --args env LD_PRELOAD="${PRELOAD}" "${cmd[@]}" #> "${stdout_file}" 2> "${stderr_file}"
+  # Run the command with LD_PRELOAD. Use bash -c to allow redirections in the
+  # command but preferring not to lose quoting; we execute the array with
+  # LD_PRELOAD in environment. Capture exit code so we can report it. gdb --args
+  # env LD_PRELOAD="${PRELOAD}" "${cmd[@]}" #> "${stdout_file}" 2>
+  # "${stderr_file}"
   cd "${work_dir}"
   sudo numactl -N0 env LD_PRELOAD="${PRELOAD}" "${cmd[@]}" > "${stdout_file}" 2> "${stderr_file}"
   
@@ -98,22 +94,37 @@ run_app() {
 
   # Plots
 
-  # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_cgups_mul.py" "${app_dir}/app.txt" "${app_dir}/throughput.png"
-  # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_gapbs_mul.py" "${app_dir}/app.txt" "${app_dir}/gapbs_times.png"
+  # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_cgups_mul.py"
+  # "${app_dir}/app.txt" "${app_dir}/throughput.png" ./venv/bin/python
+  # "${PLOT_SCRIPTS_DIR}/plot_gapbs_mul.py" "${app_dir}/app.txt"
+  # "${app_dir}/gapbs_times.png"
 
-  # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stats_mul.py" -f "${app_dir}/stats.txt" -g1 "dram_free" "dram_used" "dram_size" "dram_cap" -o "${app_dir}/dram_stats"
-  # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stats_mul.py" -f "${app_dir}/stats.txt" -g1 "dram_accesses" "rem_accesses" -o "${app_dir}/accesses"
-  # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stats_mul.py" -f "${app_dir}/stats.txt" -g1 "percent_dram" -o "${app_dir}/percent"
-  # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stats_mul.py" -f "${app_dir}/stats.txt" -g1 "internal_mem_overhead" -g2 "mem_allocated" -o "${app_dir}/mem"
-  # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stats_mul.py" -f "${app_dir}/stats.txt" -g1 "promotions" "demotions" -g2 "threshold" -o "${app_dir}/migrations"
-  # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stats_mul.py" -f "${app_dir}/stats.txt" -g1 "pebs_resets" -o "${app_dir}/resets"
-  # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stats_mul.py" -f "${app_dir}/stats.txt" -g1 "mig_move_time" -g2 "mig_queue_time" -o "${app_dir}/mig_time"
-  # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stats_mul.py" -f "${app_dir}/stats.txt" -g1 "cold_pages" "hot_pages" -o "${app_dir}/pages"
-  # ./venv/bin/python plot_pebs_mig.py --log-file "${app_dir}/debuglog.txt" --out "${app_dir}/mig_latency"
+  # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stats_mul.py" -f
+  # "${app_dir}/stats.txt" -g1 "dram_free" "dram_used" "dram_size" "dram_cap" -o
+  # "${app_dir}/dram_stats" ./venv/bin/python
+  # "${PLOT_SCRIPTS_DIR}/plot_stats_mul.py" -f "${app_dir}/stats.txt" -g1
+  # "dram_accesses" "rem_accesses" -o "${app_dir}/accesses" ./venv/bin/python
+  # "${PLOT_SCRIPTS_DIR}/plot_stats_mul.py" -f "${app_dir}/stats.txt" -g1
+  # "percent_dram" -o "${app_dir}/percent" ./venv/bin/python
+  # "${PLOT_SCRIPTS_DIR}/plot_stats_mul.py" -f "${app_dir}/stats.txt" -g1
+  # "internal_mem_overhead" -g2 "mem_allocated" -o "${app_dir}/mem"
+  # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stats_mul.py" -f
+  # "${app_dir}/stats.txt" -g1 "promotions" "demotions" -g2 "threshold" -o
+  # "${app_dir}/migrations" ./venv/bin/python
+  # "${PLOT_SCRIPTS_DIR}/plot_stats_mul.py" -f "${app_dir}/stats.txt" -g1
+  # "pebs_resets" -o "${app_dir}/resets" ./venv/bin/python
+  # "${PLOT_SCRIPTS_DIR}/plot_stats_mul.py" -f "${app_dir}/stats.txt" -g1
+  # "mig_move_time" -g2 "mig_queue_time" -o "${app_dir}/mig_time"
+  # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stats_mul.py" -f
+  # "${app_dir}/stats.txt" -g1 "cold_pages" "hot_pages" -o "${app_dir}/pages"
+  # ./venv/bin/python plot_pebs_mig.py --log-file "${app_dir}/debuglog.txt"
+  # --out "${app_dir}/mig_latency"
 
-  # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_cluster_no_app.py" "${app_dir}/tmem_trace.bin" -fast
-  # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_cluster_no_app.py" "${app_dir}/tmem_trace.bin" -fast -c cpu
-  # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_cluster_no_app.py" "${app_dir}/trace.bin" -fast
+  # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_cluster_no_app.py"
+  # "${app_dir}/tmem_trace.bin" -fast ./venv/bin/python
+  # "${PLOT_SCRIPTS_DIR}/plot_cluster_no_app.py" "${app_dir}/tmem_trace.bin"
+  # -fast -c cpu ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_cluster_no_app.py"
+  # "${app_dir}/trace.bin" -fast
 
   return ${rc}
 }
@@ -157,7 +168,8 @@ grid_search() {
                               his_size=$his_size pred_depth=$pred_depth dec_down=$dec_down dec_up=$dec_up \
                               max_neighbors=$max_neighbors page_size=$page_size dfs_algo=$dfs_algo
 
-                      # run_app "${run_name}" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
+                      # run_app "${run_name}" "${RESNET_DIR}"
+                      # "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
                       run_app "${run_name}" "${GAPBS_DIR}" "bfs" -f "twitter-2010.sg" -n 64 -r 0
 
                       # Trace files too big so remove them
@@ -180,12 +192,14 @@ grid_search() {
 run_pagr_hem() {
   local app=$1
   local period=$2
+  local record=$3
   echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
   echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
 
   local app_dir="${result_dir}"
 
-  run_make cluster_algo=0 hem_algo=0 dfs_algo=0 lru_algo=0 dram_size=32212254720 sample_period=$period
+  run_make cluster_algo=0 hem_algo=0 dfs_algo=0 lru_algo=0 dram_size=32212254720 \
+    sample_period=$period record=$record
   run_app "bc-local-${app}" "${GAPBS_DIR}" "./bc" -f "twitter-2010.sg" -n 64 -r 0
   run_app "resnet-local-${app}" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
 
@@ -203,20 +217,23 @@ run_pagr_hem() {
   # Resnet  
   run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
     his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
-    max_neighbors=8 bfs_algo=0 dfs_algo=1 lru_algo=1 sample_period=$period
+    max_neighbors=8 bfs_algo=0 dfs_algo=1 lru_algo=1 sample_period=$period \
+    record=$record
   run_app "resnet-PAGR-${app}" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
 
-  run_make cluster_algo=0 hem_algo=1 dfs_algo=0 sample_period=$period
+  run_make cluster_algo=0 hem_algo=1 dfs_algo=0 sample_period=$period \
+    record=$record
   run_app "resnet-hem-${app}" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
 
   echo always | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
   echo always | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
   # CGUPS
   run_make cluster_algo=1 hem_algo=0 dfs_algo=1 lru_algo=1 \
-    dec_down=0.0001 dec_up=0.01 sample_period=$period
+    dec_down=0.0001 dec_up=0.01 sample_period=$period record=$record
   run_app "cgups-PAGR-${app}" "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
 
-  run_make cluster_algo=0 hem_algo=1 dfs_algo=0 lru_algo=0 sample_period=$period
+  run_make cluster_algo=0 hem_algo=1 dfs_algo=0 lru_algo=0 sample_period=$period \
+    record=$record
   run_app "cgups-hem-${app}" "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
 
   echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
@@ -225,73 +242,78 @@ run_pagr_hem() {
   # BFS
   run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
     his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
-    max_neighbors=8 dfs_algo=1 lru_algo=1 sample_period=$period
+    max_neighbors=8 dfs_algo=1 lru_algo=1 sample_period=$period \
+    record=$record
   run_app "bfs-PAGR-${app}" "${GAPBS_DIR}" "./bfs" -f "twitter-2010.sg" -n 64 -r 0
 
-  run_make cluster_algo=0 hem_algo=1 dfs_algo=0 sample_period=$period
+  run_make cluster_algo=0 hem_algo=1 dfs_algo=0 sample_period=$period \
+    record=$record
   run_app "bfs-hem-${app}" "${GAPBS_DIR}" "./bfs" -f "twitter-2010.sg" -n 64 -r 0
 
   # Stream
   run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
     his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
-    max_neighbors=8 dfs_algo=1 lru_algo=1 sample_period=$period
+    max_neighbors=8 dfs_algo=1 lru_algo=1 sample_period=$period \
+    record=$record
   run_app "stream-PAGR-${app}" "${STREAM_DIR}" "./stream" 2048 50
 
-  run_make cluster_algo=0 hem_algo=1 sample_period=$period
+  run_make cluster_algo=0 hem_algo=1 sample_period=$period \
+    record=$record
   run_app "stream-hem-${app}" "${STREAM_DIR}" "./stream" 2048 50
 
   # BC
   run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
     his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
-    max_neighbors=8 dfs_algo=1 lru_algo=1 sample_period=$period
+    max_neighbors=8 dfs_algo=1 lru_algo=1 sample_period=$period \
+    record=$record
   run_app "bc-PAGR-${app}" "${GAPBS_DIR}" "./bc" -f "twitter-2010.sg" -n 64 -r 0
 
-  run_make cluster_algo=0 hem_algo=1 dfs_algo=0 sample_period=$period
+  run_make cluster_algo=0 hem_algo=1 dfs_algo=0 sample_period=$period \
+    record=$record
   run_app "bc-hem-${app}" "${GAPBS_DIR}" "./bc" -f "twitter-2010.sg" -n 64 -r 0
 
   rm -f make_config.txt
 }
 
 run_sample_period() {
+  local record=0
   for period in $@; do
     echo "Testing sample period: ${period}"
-    run_pagr_hem "2GB-$period" $period
+    run_pagr_hem "2GB-$period" $period $record
     sudo sync && echo 3 | sudo tee /proc/sys/vm/drop_caches
   done
 }
-run_sample_period 100 200 400 800 1600 3200 6400
+run_sample_period 100 #200 400 800 1600 3200 6400 12800 25600 51200 102400
 # run_pagr_hem 2GB
 
 # grid_search
 
 
 ### Example usage (uncomment or call from command line / source)
-# Single run using the original cgups command:
-# run_app "cgups" "${CGUPS_DIR}/gups64-rw" "16" "move" "30" "kill" "60"
+# Single run using the original cgups command: run_app "cgups"
+# "${CGUPS_DIR}/gups64-rw" "16" "move" "30" "kill" "60"
 #
 # Alternatively, if you prefer to pass the whole command as a single string:
 # run_app "cgups" bash -c "${CGUPS_DIR}/gups64-rw 16 move 30 kill 60"
 #
 # run_app "mgups-2MB" "${MGUPS_DIR}/gups" 16000 2000 8 60 30 16
 #
-# Example calling multiple runs:
-# run_app "stream-2MB" "${STREAM_DIR}/stream" 2048 10
-# run_app "cgups-2MB-test" "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
-# run_app "hgups-2MB" "${HGUPS_DIR}/gups-hotset-move" 8 100000000 34 8 32
-# run_app "bfs-2MB" "${GAPBS_DIR}/bfs" -f "${GAPBS_DIR}/twitter-2010.sg" -n 16 -r 0
+# Example calling multiple runs: run_app "stream-2MB" "${STREAM_DIR}/stream"
+# 2048 10 run_app "cgups-2MB-test" "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill
+# 60 run_app "hgups-2MB" "${HGUPS_DIR}/gups-hotset-move" 8 100000000 34 8 32
+# run_app "bfs-2MB" "${GAPBS_DIR}/bfs" -f "${GAPBS_DIR}/twitter-2010.sg" -n 16
+# -r 0
 
-# YCSB
-# run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
+# YCSB run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
 #   his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
 #   max_neighbors=8 bfs_algo=0 dfs_algo=1
 
 # # Stop any existing memcached
-# sudo pkill memcached
-# sleep 1
+# sudo pkill memcached sleep 1
 
 # # Start memcached fresh with 4GB RAM
-# sudo memcached -m 16000 -u nobody -p 11211 -d
-# sleep 1   # give it a moment to start
+# sudo memcached -m 16000 -u nobody -p 11211 -d sleep 1   # give it a moment to
+# start
 
 # # Load phase
 # run_app "ycsb-PaGR-load" "${YCSB_DIR}" ./bin/ycsb load memcached -s \
@@ -309,155 +331,148 @@ run_sample_period 100 200 400 800 1600 3200 6400
 #   -p maxexecutiontime=60 \
 #   -threads 8
 
-# Stop memcached
-# sudo pkill memcached
+# Stop memcached sudo pkill memcached
 
 
 
-#resnet
-# current best
+#resnet current best
 
-# THP
-# echo always | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
-# echo always | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
+# THP echo always | sudo tee /sys/kernel/mm/transparent_hugepage/enabled echo
+# always | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
 
-# Regular
-# echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
-# echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
+# Regular echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled echo
+# never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
 
 # run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
 #   his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
-#   max_neighbors=8 bfs_algo=0 dfs_algo=1
-# run_app "resnet-PAGR" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
+#   max_neighbors=8 bfs_algo=0 dfs_algo=1 run_app "resnet-PAGR" "${RESNET_DIR}"
+# "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
 
-# run_make cluster_algo=0 hem_algo=1 dfs_algo=0
-# run_app "resnet-hem" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
+# run_make cluster_algo=0 hem_algo=1 dfs_algo=0 run_app "resnet-hem"
+# "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
 
-# run_make cluster_algo=0 hem_algo=0 dfs_algo=0
-# run_app "resnet-no-155" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
+# run_make cluster_algo=0 hem_algo=0 dfs_algo=0 run_app "resnet-no-155"
+# "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
 
 
 
 
 # run_make pebs_stats=1 cluster_algo=0 hem_algo=0 \
 #   his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
-#   max_neighbors=8 page_size=4096 bfs_algo=0
-# run_app "resnet-best-4KB" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
+#   max_neighbors=8 page_size=4096 bfs_algo=0 run_app "resnet-best-4KB"
+# "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
 
-# run_make cluster_algo=0 hem_algo=1 page_size=4096
-# run_app "resnet-hem-4KB" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
+# run_make cluster_algo=0 hem_algo=1 page_size=4096 run_app "resnet-hem-4KB"
+# "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
 
 
 # run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
 #   his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
-#   max_neighbors=8 page_size=1048576
-# run_app "resnet-best-1MB" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
+#   max_neighbors=8 page_size=1048576 run_app "resnet-best-1MB" "${RESNET_DIR}"
+# "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
 
-# run_make cluster_algo=0 hem_algo=1 page_size=1048576
-# run_app "resnet-hem-1MB" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
+# run_make cluster_algo=0 hem_algo=1 page_size=1048576 run_app "resnet-hem-1MB"
+# "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
 
-# run_make cluster_algo=1 hem_algo=0 page_size=262144
-# run_app "resnet-cluster-8MB" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
+# run_make cluster_algo=1 hem_algo=0 page_size=262144 run_app
+# "resnet-cluster-8MB" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python"
+# "resnet_train.py"
 
-# run_make cluster_algo=1 hem_algo=1 page_size=262144
-# run_app "resnet-both-8MB" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
+# run_make cluster_algo=1 hem_algo=1 page_size=262144 run_app "resnet-both-8MB"
+# "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
 
 #cgups
 
-# run_make cluster_algo=0 hem_algo=0 dfs_algo=0
-# run_app "cgups-no" "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
+# run_make cluster_algo=0 hem_algo=0 dfs_algo=0 run_app "cgups-no"
+# "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
 
-# run_make cluster_algo=0 hem_algo=1 dfs_algo=0
-# run_app "cgups-hem" "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
+# run_make cluster_algo=0 hem_algo=1 dfs_algo=0 run_app "cgups-hem"
+# "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
 
 # run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
 #   his_size=8 pred_depth=16 dec_down=0.00005 dec_up=0.1 \
-#   max_neighbors=8 dfs_algo=1
-# run_app "cgups-PAGR" "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
+#   max_neighbors=8 dfs_algo=1 run_app "cgups-PAGR" "${CGUPS_DIR}" "./gups64-rw"
+# 8 move 30 kill 60
 
-# run_make cluster_algo=1 hem_algo=1 dfs_algo=1
-# run_app "cgups-both" "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
+# run_make cluster_algo=1 hem_algo=1 dfs_algo=1 run_app "cgups-both"
+# "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
 
-# echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
-# echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
+# echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled echo never |
+# sudo tee /sys/kernel/mm/transparent_hugepage/defrag
 
-# run_make cluster_algo=0 hem_algo=0 dfs_algo=1
-# run_app "cgups-no-reg" "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
+# run_make cluster_algo=0 hem_algo=0 dfs_algo=1 run_app "cgups-no-reg"
+# "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
 
-# run_make cluster_algo=0 hem_algo=1 dfs_algo=1
-# run_app "cgups-hem-reg" "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
+# run_make cluster_algo=0 hem_algo=1 dfs_algo=1 run_app "cgups-hem-reg"
+# "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
 
-# run_make cluster_algo=1 hem_algo=0 dfs_algo=1
-# run_app "cgups-cluster-reg" "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
+# run_make cluster_algo=1 hem_algo=0 dfs_algo=1 run_app "cgups-cluster-reg"
+# "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
 
-# run_make cluster_algo=1 hem_algo=1 dfs_algo=1
-# run_app "cgups-both" "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
+# run_make cluster_algo=1 hem_algo=1 dfs_algo=1 run_app "cgups-both"
+# "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill 60
 
-# #bfs
-# THP
-# echo always | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
+# #bfs THP echo always | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
 # echo always | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
 
 
 # run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
 #   his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
-#   max_neighbors=8 dfs_algo=1
-# run_app "bfs-PAGR-cold" "${GAPBS_DIR}" "./bfs" -f "twitter-2010.sg" -n 64 -r 0
+#   max_neighbors=8 dfs_algo=1 run_app "bfs-PAGR-cold" "${GAPBS_DIR}" "./bfs" -f
+# "twitter-2010.sg" -n 64 -r 0
 
-# Regular
-# echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
-# echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
+# Regular echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled echo
+# never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
 
 # run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
 #   his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
-#   max_neighbors=8 dfs_algo=1
-# run_app "bfs-PAGR" "${GAPBS_DIR}" "./bfs" -f "twitter-2010.sg" -n 64 -r 0
+#   max_neighbors=8 dfs_algo=1 run_app "bfs-PAGR" "${GAPBS_DIR}" "./bfs" -f
+# "twitter-2010.sg" -n 64 -r 0
 
-# run_make cluster_algo=0 hem_algo=0 dfs_algo=0
-# run_app "bfs-no" "${GAPBS_DIR}" "./bfs" -f "twitter-2010.sg" -n 64 -r 0
+# run_make cluster_algo=0 hem_algo=0 dfs_algo=0 run_app "bfs-no" "${GAPBS_DIR}"
+# "./bfs" -f "twitter-2010.sg" -n 64 -r 0
 
-# run_make cluster_algo=0 hem_algo=1 dfs_algo=0
-# run_app "bfs-hem" "${GAPBS_DIR}" "./bfs" -f "twitter-2010.sg" -n 64 -r 0
+# run_make cluster_algo=0 hem_algo=1 dfs_algo=0 run_app "bfs-hem" "${GAPBS_DIR}"
+# "./bfs" -f "twitter-2010.sg" -n 64 -r 0
 
 
-# run_make cluster_algo=1 hem_algo=1
-# run_app "bfs-both" "${GAPBS_DIR}" "bfs" -f "twitter-2010.sg" -n 64 -r 0
+# run_make cluster_algo=1 hem_algo=1 run_app "bfs-both" "${GAPBS_DIR}" "bfs" -f
+# "twitter-2010.sg" -n 64 -r 0
 
 # #stream
 
 # run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
 #   his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
-#   max_neighbors=8 dfs_algo=1
-# run_app "stream-PAGR" "${STREAM_DIR}" "./stream" 2048 50
+#   max_neighbors=8 dfs_algo=1 run_app "stream-PAGR" "${STREAM_DIR}" "./stream"
+# 2048 50
 
-# echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
-# echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
+# echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled echo never |
+# sudo tee /sys/kernel/mm/transparent_hugepage/defrag
 
 # run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
 #   his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
-#   max_neighbors=8 dfs_algo=1
-# run_app "stream-PAGR" "${STREAM_DIR}" "./stream" 2048 50
+#   max_neighbors=8 dfs_algo=1 run_app "stream-PAGR" "${STREAM_DIR}" "./stream"
+# 2048 50
 
-# run_make cluster_algo=0 hem_algo=0
-# run_app "stream-no" "${STREAM_DIR}" "./stream" 2048 50
+# run_make cluster_algo=0 hem_algo=0 run_app "stream-no" "${STREAM_DIR}"
+# "./stream" 2048 50
 
-# run_make cluster_algo=0 hem_algo=1
-# run_app "stream-hem" "${STREAM_DIR}" "./stream" 2048 50
+# run_make cluster_algo=0 hem_algo=1 run_app "stream-hem" "${STREAM_DIR}"
+# "./stream" 2048 50
 
-# run_make cluster_algo=1 hem_algo=0
-# run_app "stream-cluster" "${STREAM_DIR}" "./stream" 2048 50
+# run_make cluster_algo=1 hem_algo=0 run_app "stream-cluster" "${STREAM_DIR}"
+# "./stream" 2048 50
 
-# run_make cluster_algo=1 hem_algo=1
-# run_app "stream-both" "${STREAM_DIR}" "./stream" 2048 50
+# run_make cluster_algo=1 hem_algo=1 run_app "stream-both" "${STREAM_DIR}"
+# "./stream" 2048 50
 
-# bc
-# run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
+# bc run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
 #   his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
-#   max_neighbors=8 dfs_algo=1
-# run_app "bc-PAGR" "${GAPBS_DIR}" "./bc" -f "twitter-2010.sg" -n 64 -r 0
+#   max_neighbors=8 dfs_algo=1 run_app "bc-PAGR" "${GAPBS_DIR}" "./bc" -f
+# "twitter-2010.sg" -n 64 -r 0
 
-# run_make cluster_algo=0 hem_algo=0 dfs_algo=0
-# run_app "bc-no" "${GAPBS_DIR}" "./bc" -f "twitter-2010.sg" -n 64 -r 0
+# run_make cluster_algo=0 hem_algo=0 dfs_algo=0 run_app "bc-no" "${GAPBS_DIR}"
+# "./bc" -f "twitter-2010.sg" -n 64 -r 0
 
-# run_make cluster_algo=0 hem_algo=1 dfs_algo=0
-# run_app "bc-hem" "${GAPBS_DIR}" "./bc" -f "twitter-2010.sg" -n 64 -r 0
+# run_make cluster_algo=0 hem_algo=1 dfs_algo=0 run_app "bc-hem" "${GAPBS_DIR}"
+# "./bc" -f "twitter-2010.sg" -n 64 -r 0
