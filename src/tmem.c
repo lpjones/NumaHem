@@ -10,6 +10,7 @@ pthread_mutex_t mmap_lock = PTHREAD_MUTEX_INITIALIZER;
 long dram_free = 0;
 long dram_size = 0;
 long dram_used = 0;
+long rem_used = 0;
 
 static uint64_t max_tmem_va = 0;
 static uint64_t min_tmem_va = UINT64_MAX;
@@ -68,17 +69,9 @@ struct tmem_page* find_page(uint64_t va)
 
 void tmem_init() {
     internal_call = true;
-#ifdef DRAM_BUFFER
-#ifdef DRAM_SIZE
+#if (DRAM_BUFFER != 0 && DRAM_SIZE != 0) || (DRAM_BUFFER == 0 && DRAM_SIZE == 0)
     fprintf(stderr, "Can't have both DRAM_BUFFER and DRAM_SIZE\n");
     exit(1);
-#endif
-#endif
-#ifndef DRAM_BUFFER
-#ifndef DRAM_SIZE
-    fprintf(stderr, "Need either DRAM_BUFFER or DRAM_SIZE\n");
-    exit(1);
-#endif
 #endif
 
     // Puts non-tracked mmaps into remote memory so it doesn't exceed
@@ -121,7 +114,9 @@ void* tmem_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t of
     assert(p != MAP_FAILED);
 
     pthread_mutex_lock(&mmap_lock);
-    if (__atomic_load_n(&dram_used, __ATOMIC_ACQUIRE) + length <= dram_size && atomic_load_explicit(&dram_lock, memory_order_acquire) == false) {
+
+    if (__atomic_load_n(&dram_used, __ATOMIC_ACQUIRE) + length <= dram_size 
+        && atomic_load_explicit(&dram_lock, memory_order_acquire) == false) {
         // can allocate all on dram
         __atomic_fetch_add(&dram_used, length, __ATOMIC_RELEASE);
         // dram_used += length;
@@ -315,9 +310,9 @@ int tmem_munmap(void *addr, size_t length) {
             assert(page->free == false);
             page->free = true;
             remove_page(page);
-            if (page->in_dram == IN_DRAM) {
-                dram_used -= page->size;
-            }
+            // if (page->in_dram == IN_DRAM) {
+            //     dram_used -= page->size;
+            // }
             pebs_stats.mem_allocated -= page->size;
 
             if (page->list != NULL) {

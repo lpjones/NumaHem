@@ -10,12 +10,15 @@ struct timespec log_start_time;
 
 void init_log_files() {
     internal_call = true;
-    
-    debug_fp = fopen("debuglog.txt", "w");
-    assert(debug_fp != NULL);
 
+#if PEBS_STATS == 1
     stats_fp = fopen("stats.txt", "w");
     assert(stats_fp != NULL);
+#endif
+
+#if RECORD == 1
+    debug_fp = fopen("debuglog.txt", "w");
+    assert(debug_fp != NULL);
 
     time_fp = fopen("time.txt", "w");
     assert(time_fp != NULL);
@@ -28,7 +31,7 @@ void init_log_files() {
 
     cold_fp = fopen("cold.bin", "wb");
     assert(cold_fp != NULL);
-
+#endif
     internal_call = false;
 
     // reference start time

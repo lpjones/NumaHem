@@ -16,7 +16,7 @@ def parse_cgups(path):
                 if tok.isdigit():
                     nums.append(int(tok))
                 # else: ignore (this will ignore hex addresses and text)
-    return nums
+    return list(range(len(nums))), nums
 
 
 def parse_gapbs(file_path):
@@ -31,7 +31,7 @@ def parse_gapbs(file_path):
                     vals.append(float(m.group(1)))
                 except ValueError:
                     pass
-    return vals
+    return list(range(len(vals))), vals
 
 def parse_resnet(filepath):
     """
@@ -64,7 +64,7 @@ def parse_resnet(filepath):
                     pass
 
     # Return epochs sorted ascending
-    return values
+    return list(range(len(values))), values
 
 def parse_stream(file_path):
     ITER_RE = re.compile(r'Iter\s+\d+:\s*time\s*=\s*([0-9]*\.?[0-9]+)\s*seconds', re.IGNORECASE)
@@ -80,7 +80,7 @@ def parse_stream(file_path):
                     vals.append(float(m.group(1)))
                 except ValueError:
                     pass
-    return vals
+    return list(range(len(vals))), vals
 
 def check_args(args):
     # Validate inputs exist
@@ -95,3 +95,19 @@ def check_args(args):
     if len(args.inputs) != len(args.labels):
         print(f"Input files not equal to the number of labels: {len(args.inputs)} != {len(args.labels)}")
         return 1
+
+
+def parse_stats(file_path):
+    RE_METRIC = re.compile(r'([A-Za-z0-9_/-]+):\s*\[([^\]]*)\]')
+    met_dict = dict()
+    if not os.path.isfile(file_path):
+        print(f"Not a valid file: {file_path}")
+        sys.exit(1)
+
+    with open(file_path, 'r') as f:
+        for line in f:
+            for m in RE_METRIC.finditer(line):
+                name = m.group(1)
+                val  = float(m.group(2))
+                met_dict.setdefault(name, []).append(val)
+    return met_dict

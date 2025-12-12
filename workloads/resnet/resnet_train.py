@@ -24,7 +24,7 @@ model = models.resnet50().to(device)
 # print(f"New number of threads: {new_threads}")
 
 # Synthetic data
-batch_size = 128
+batch_size = 512
 dummy_input = torch.randn(batch_size, 3, 224, 224).to(device)
 dummy_target = torch.randint(0, 1000, (batch_size,)).to(device)
 
@@ -32,7 +32,7 @@ criterion = nn.CrossEntropyLoss()
 optimizer = optim.SGD(model.parameters(), lr=0.01)
 
 # Config
-epochs = 20
+epochs = 2
 iters_per_epoch = 2
 
 model.train()

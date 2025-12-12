@@ -115,15 +115,15 @@ void* pebs_stats_thread() {
 
     while (!killed(PEBS_STATS_THREAD)) {
         sleep(1);
-        LOG_STATS("internal_mem_overhead: [%lu]\tmem_allocated: [%lu]\tthrottles/unthrottles: [%lu/%lu]\tunknown_samples: [%lu]\n", 
+        LOG_STATS("internal_mem_overhead: [%lu]\tmem_allocated: [%lu]\tthrottles: [%lu]\tunthrottles: [%lu]\tunknown_samples: [%lu]\n", 
                 pebs_stats.internal_mem_overhead, pebs_stats.mem_allocated, pebs_stats.throttles, pebs_stats.unthrottles, pebs_stats.unknown_samples)
         LOG_STATS("\twrapped_records: [%lu]\twrapped_headers: [%lu]\n", 
                 pebs_stats.wrapped_records, pebs_stats.wrapped_headers);
 
-#ifdef DRAM_BUFFER
-        LOG_STATS("\tdram_free: [%ld]\tdram_used: [%ld]\t dram_size: [%ld]\tdram_cap: [%ld]\n", dram_free, dram_used, dram_size, dram_free - DRAM_BUFFER);
+#if DRAM_BUFFER != 0
+        LOG_STATS("\tdram_free: [%ld]\tdram_used: [%ld]\t dram_size: [%ld]\trem_used: [%ld]\n", dram_free, dram_used, dram_size, rem_used);
 #endif
-#ifdef DRAM_SIZE
+#if DRAM_SIZE != 0
         LOG_STATS("\tdram_used: [%ld]\t dram_size: [%ld]\tnon_tracked_mem: [%lu]\n", dram_used, dram_size, pebs_stats.non_tracked_mem);
 #endif
         double percent_dram = 100.0 * pebs_stats.dram_accesses / (pebs_stats.dram_accesses + pebs_stats.rem_accesses);
@@ -149,11 +149,15 @@ void* pebs_stats_thread() {
         pebs_stats.pebs_resets = 0;
         
 
-#ifdef DRAM_BUFFER
-        // hacky way to update dram_size every second in case there's drift over time
-        long cur_dram_free;
-        dram_size = numa_node_size(DRAM_NODE, &cur_dram_free);
-        dram_size -= cur_dram_free; 
+#if DRAM_BUFFER != 0
+        // hacky way to update dram_used every second in case there's drift over time
+        dram_size = numa_node_size(DRAM_NODE, &dram_free);
+        dram_used = dram_size - dram_free;
+        dram_size -= DRAM_BUFFER;
+
+        long rem_free;
+        long rem_size = numa_node_size(REM_NODE, &rem_free);
+        rem_used = rem_size - rem_free;
 #endif
     }
     return NULL;
@@ -317,7 +321,7 @@ void process_perf_buffer(int cpu_idx, int evt) {
         if (page == NULL)
             page = find_page_no_lock(rec.addr & BASE_PAGE_MASK);
         if (page == NULL) continue;
-
+#if RECORD == 1
         struct pebs_rec p_rec = {
             .va = addr_aligned,
             .ip = rec.ip,
@@ -326,6 +330,7 @@ void process_perf_buffer(int cpu_idx, int evt) {
             .evt = evt
         };
         fwrite(&p_rec, sizeof(struct pebs_rec), 1, tmem_trace_fp);
+#endif
 
         // if (page->migrated) {
         //     LOG_DEBUG("PEBS: accessed migrated page: 0x%lx\n", page->va);
@@ -352,6 +357,7 @@ void process_perf_buffer(int cpu_idx, int evt) {
 #if HEM_ALGO == 1
         if (page->accesses >= HOT_THRESHOLD) {
             // LOG_DEBUG("PEBS: Made hot: 0x%lx\n", page->va);
+#if RECORD == 1
             struct pebs_rec p_rec = {
                 .va = page->va,
                 .ip = 0,
@@ -360,27 +366,27 @@ void process_perf_buffer(int cpu_idx, int evt) {
                 .evt = 0
             };
             fwrite(&p_rec, sizeof(struct pebs_rec), 1, pred_fp);
+#endif
             make_hot_request(page);
         } else {
             make_cold_request(page);
         }
 
         // Sample based cooling
-        samples_since_cool++;
-        if (samples_since_cool >= SAMPLE_COOLING_THRESHOLD) {
-            global_clock++;
-            samples_since_cool = 0;
-            // printf("cyc since last cool: %lu\n", cur_cyc - last_cyc_cool);
-            last_cyc_cool = rdtscp();
-        }
+        // samples_since_cool++;
+        // if (samples_since_cool >= SAMPLE_COOLING_THRESHOLD) {
+        //     global_clock++;
+        //     samples_since_cool = 0;
+        //     // printf("cyc since last cool: %lu\n", cur_cyc - last_cyc_cool);
+        //     last_cyc_cool = rdtscp();
+        // }
 
         // Time based cooling
-        // if (cur_cyc - last_cyc_cool > CYC_COOL_THRESHOLD) {
-        //     // global_clock++;
-        //     // __atomic_fetch_add(&global_clock, 1, __ATOMIC_RELEASE);
-        //     global_clock++;
-        //     last_cyc_cool = cur_cyc;
-        // }
+        if (cur_cyc - last_cyc_cool > CYC_COOL_THRESHOLD) {
+            // __atomic_fetch_add(&global_clock, 1, __ATOMIC_RELEASE);
+            global_clock++;
+            last_cyc_cool = cur_cyc;
+        }
 
 #endif 
 
@@ -397,6 +403,7 @@ void process_perf_buffer(int cpu_idx, int evt) {
 
             for (uint32_t i = 0; i < idx; i++) {
                 // LOG_DEBUG("PRED: 0x%lx from 0x%lx\n", pred_pages[i]->va, page->va);
+#if RECORD == 1
                 struct pebs_rec p_rec = {
                     .va = pred_pages[i]->va,
                     .ip = 0,
@@ -405,6 +412,7 @@ void process_perf_buffer(int cpu_idx, int evt) {
                     .evt = 0
                 };
                 fwrite(&p_rec, sizeof(struct pebs_rec), 1, pred_fp);
+#endif
                 make_hot_request(pred_pages[i]);
             }
             
@@ -485,6 +493,7 @@ void tmem_migrate_page(struct tmem_page *page, int node) {
             page->hot = true;
             enqueue_fifo(&hot_list, page);
 #endif
+#if RECORD == 1
             struct pebs_rec p_rec = {
                 .va = page->va,
                 .ip = 0,
@@ -493,7 +502,9 @@ void tmem_migrate_page(struct tmem_page *page, int node) {
                 .evt = 0
             };
             fwrite(&p_rec, sizeof(struct pebs_rec), 1, mig_fp);
+#endif
         } else {
+#if RECORD == 1
             struct pebs_rec p_rec = {
                 .va = page->va,
                 .ip = 0,
@@ -502,6 +513,7 @@ void tmem_migrate_page(struct tmem_page *page, int node) {
                 .evt = 0
             };
             fwrite(&p_rec, sizeof(struct pebs_rec), 1, cold_fp);
+#endif
             page->in_dram = IN_REM;
             page->hot = false;
         }

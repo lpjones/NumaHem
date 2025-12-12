@@ -1,18 +1,6 @@
-#!/usr/bin/env bash
-# run_test.sh
-# Usage:
-#   ./run_test.sh              # runs the example at the bottom
-#   OR source this file and call run_app "myconfig" "<full command line>"
-
-PRELOAD="/proj/TppPlus/tpp/libnuma_pgmig/src/libtmem.so"
-CGUPS_DIR="../workloads/cgups"
-MGUPS_DIR="../../scripts/my_gups"
-HGUPS_DIR="../workloads/hgups"
-GAPBS_DIR="../workloads/gapbs"
-RESNET_DIR="../workloads/resnet"
-STREAM_DIR="../workloads/stream"
-YCSB_DIR="../workloads/YCSB"
 PLOT_SCRIPTS_DIR="plot_scripts"
+
+py_bin=./venv/bin/python
 
 result_dir="results"
 
@@ -35,7 +23,7 @@ run_app() {
 
   # Plots
 
-  ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_cgups_mul.py" "${app_dir}/app.txt" "${app_dir}/throughput.png"
+  # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_cgups_mul.py" "${app_dir}/app.txt" "${app_dir}/throughput.png"
 #   ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_gapbs_mul.py" "${app_dir}/app.txt" "${app_dir}/gapbs_times.png"
 
   # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stats_mul.py" \
@@ -44,11 +32,29 @@ run_app() {
   #   --labels "" \
   #   -o "${app_dir}/dram_stats"
 
-  ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stats_mul.py" \
-    -f "${app_dir}/stats.txt" \
-    -g1 "dram_accesses" "rem_accesses" \
-    --labels "" \
-    -o "${app_dir}/accesses"
+  $py_bin "${PLOT_SCRIPTS_DIR}/plot_stats.py" \
+    "${app_dir}/stats.txt" \
+    "${app_dir}/accesses.png" \
+    --metrics "dram_accesses" "rem_accesses" \
+    --labels "Fast accesses" "Slow Accesses" \
+    --title "ResNet50 Accesses" \
+    --ylabel "Accesses"
+
+  $py_bin "${PLOT_SCRIPTS_DIR}/plot_stats.py" \
+    "${app_dir}/stats.txt" \
+    "${app_dir}/percent.png" \
+    --metrics "percent_dram" \
+    --labels "Percent Fast mem" \
+    --title "ResNet50 Percent Fast Mem" \
+    --ylabel "Percent (%)"
+
+  $py_bin "${PLOT_SCRIPTS_DIR}/plot_stats.py" \
+    "${app_dir}/stats.txt" \
+    "${app_dir}/mem.png" \
+    --metrics "dram_used" "dram_size" "dram_free" \
+    --labels "Fast Mem used" "Fast Mem size" "Fast Mem free" \
+    --title "ResNet50 Mem" \
+    --ylabel "Mem used (Bytes)"
 
   # ./venv/bin/python "${PLOT_SCRIPTS_DIR}/plot_stats_mul.py" \
   #   -f "${app_dir}/stats.txt" \
@@ -104,8 +110,7 @@ run_app() {
 }
 
 # run_app bfs-hem-2GB-100
-run_app resnet-PAGR-2GB-100
-run_app resnet-hem-2GB-100
+run_app resnet-PAGR
 
 # % modify plots to start y-axis at 0
 # % add references to end of background bibtex

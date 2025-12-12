@@ -283,56 +283,10 @@ run_sample_period() {
     sudo sync && echo 3 | sudo tee /proc/sys/vm/drop_caches
   done
 }
-run_sample_period 100 #200 400 800 1600 3200 6400 12800 25600 51200 102400
+# run_sample_period 100 #200 400 800 1600 3200 6400 12800 25600 51200 102400
 # run_pagr_hem 2GB
 
 # grid_search
-
-
-### Example usage (uncomment or call from command line / source)
-# Single run using the original cgups command: run_app "cgups"
-# "${CGUPS_DIR}/gups64-rw" "16" "move" "30" "kill" "60"
-#
-# Alternatively, if you prefer to pass the whole command as a single string:
-# run_app "cgups" bash -c "${CGUPS_DIR}/gups64-rw 16 move 30 kill 60"
-#
-# run_app "mgups-2MB" "${MGUPS_DIR}/gups" 16000 2000 8 60 30 16
-#
-# Example calling multiple runs: run_app "stream-2MB" "${STREAM_DIR}/stream"
-# 2048 10 run_app "cgups-2MB-test" "${CGUPS_DIR}" "./gups64-rw" 8 move 30 kill
-# 60 run_app "hgups-2MB" "${HGUPS_DIR}/gups-hotset-move" 8 100000000 34 8 32
-# run_app "bfs-2MB" "${GAPBS_DIR}/bfs" -f "${GAPBS_DIR}/twitter-2010.sg" -n 16
-# -r 0
-
-# YCSB run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
-#   his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
-#   max_neighbors=8 bfs_algo=0 dfs_algo=1
-
-# # Stop any existing memcached
-# sudo pkill memcached sleep 1
-
-# # Start memcached fresh with 4GB RAM
-# sudo memcached -m 16000 -u nobody -p 11211 -d sleep 1   # give it a moment to
-# start
-
-# # Load phase
-# run_app "ycsb-PaGR-load" "${YCSB_DIR}" ./bin/ycsb load memcached -s \
-#   -P workloads/workloada \
-#   -p recordcount=5000000 \
-#   -p memcached.hosts=127.0.0.1 \
-#   -threads 8
-
-# # Run phase
-# run_app "ycsb-PaGR-run" "${YCSB_DIR}" ./bin/ycsb run memcached -s \
-#   -P workloads/workloada \
-#   -p memcached.hosts=127.0.0.1 \
-#   -p recordcount=10000000 \
-#   -p operationcount=100000000 \
-#   -p maxexecutiontime=60 \
-#   -threads 8
-
-# Stop memcached sudo pkill memcached
-
 
 
 #resnet current best
@@ -343,10 +297,10 @@ run_sample_period 100 #200 400 800 1600 3200 6400 12800 25600 51200 102400
 # Regular echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled echo
 # never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
 
-# run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
-#   his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
-#   max_neighbors=8 bfs_algo=0 dfs_algo=1 run_app "resnet-PAGR" "${RESNET_DIR}"
-# "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
+run_make pebs_stats=1 cluster_algo=1 hem_algo=0 \
+  his_size=8 pred_depth=16 dec_down=0.0001 dec_up=0.01 \
+  max_neighbors=8 bfs_algo=0 dfs_algo=1 dram_buffer=1073741824
+run_app "resnet-PAGR" "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
 
 # run_make cluster_algo=0 hem_algo=1 dfs_algo=0 run_app "resnet-hem"
 # "${RESNET_DIR}" "${ORIG_PWD}/venv/bin/python" "resnet_train.py"
